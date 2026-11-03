@@ -48,6 +48,21 @@ export default function RootLayout() {
             headerBackTitle: 'Carpetas',
           }}
         />
+        <Stack.Screen
+          name="notes/index"
+          options={{
+            title: 'Bloc de Notas',
+            headerBackTitle: 'Atrás',
+          }}
+        />
+        <Stack.Screen
+          name="notes/editor"
+          options={{
+            title: 'Nota',
+            presentation: 'modal',
+            headerShown: false,
+          }}
+        />
       </Stack>
     </GestureHandlerRootView>
   );

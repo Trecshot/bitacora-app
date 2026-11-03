@@ -1,5 +1,17 @@
 import * as SQLite from 'expo-sqlite';
 
+// Generador de UUID v4 estándar para Note_Categories y Notes
+export function generateUUID(): string {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === 'x' ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
+
+// -----------------------------------------------------------------------------
+// Interfaces del Módulo de Proyectos (Kanban & Folders)
+// -----------------------------------------------------------------------------
 export interface Folder {
   id: number;
   name: string;
@@ -37,19 +49,42 @@ export interface AuditLog {
   timestamp: string;
 }
 
+// -----------------------------------------------------------------------------
+// Interfaces del Módulo de Notas (Esquema Independiente SQLite)
+// -----------------------------------------------------------------------------
+export interface NoteCategory {
+  id: string; // UUID
+  parent_id: string | null; // UUID (Foreign Key, Nullable)
+  name: string;
+  created_at?: string;
+  subcategories_count?: number;
+  notes_count?: number;
+}
+
+export interface Note {
+  id: string; // UUID
+  category_id: string; // UUID (Foreign Key)
+  category_name?: string;
+  title: string;
+  content: string;
+  is_pinned: number; // 0 o 1
+  created_at?: string;
+  updated_at?: string;
+}
+
 // Instanciar la conexión sincrónica según la arquitectura requerida
 export const db = SQLite.openDatabaseSync('bitacora.db');
 
 /**
  * Función de migración inicial:
- * Crea las tablas Folders, Tasks y Audit_Logs, y define los Triggers
- * para auditoría e historial automático a nivel de SQLite.
+ * Crea las tablas de Proyectos (Folders, Tasks, Audit_Logs) con sus triggers
+ * y las tablas independientes de Notas (Note_Categories, Notes) sin colisiones.
  */
 export function initDatabase(): void {
   // Activar claves foráneas
   db.execSync('PRAGMA foreign_keys = ON;');
 
-  // Migración de Tablas
+  // Migración de Tablas de Proyectos
   db.execSync(`
     CREATE TABLE IF NOT EXISTS Folders (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -179,11 +214,34 @@ export function initDatabase(): void {
     END;
   `);
 
-  // Opcional: Insertar datos de muestra si la base de datos está recién inicializada
-  seedInitialDataIfEmpty();
+  // Migración del Esquema Independiente para Notas (Note_Categories & Notes)
+  db.execSync(`
+    CREATE TABLE IF NOT EXISTS Note_Categories (
+      id TEXT PRIMARY KEY,
+      parent_id TEXT DEFAULT NULL,
+      name TEXT NOT NULL,
+      created_at TEXT DEFAULT (datetime('now', 'localtime')),
+      FOREIGN KEY (parent_id) REFERENCES Note_Categories(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS Notes (
+      id TEXT PRIMARY KEY,
+      category_id TEXT NOT NULL,
+      title TEXT NOT NULL,
+      content TEXT NOT NULL DEFAULT '',
+      is_pinned INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT DEFAULT (datetime('now', 'localtime')),
+      updated_at TEXT DEFAULT (datetime('now', 'localtime')),
+      FOREIGN KEY (category_id) REFERENCES Note_Categories(id) ON DELETE CASCADE
+    );
+  `);
+
+  // Datos de muestra iniciales
+  seedProjectDataIfEmpty();
+  seedNoteDataIfEmpty();
 }
 
-function seedInitialDataIfEmpty(): void {
+function seedProjectDataIfEmpty(): void {
   const countRow = db.getFirstSync<{ count: number }>('SELECT COUNT(*) as count FROM Folders;');
   if (!countRow || countRow.count === 0) {
     db.runSync(
@@ -215,7 +273,75 @@ function seedInitialDataIfEmpty(): void {
   }
 }
 
-// Consultas y Operaciones de Folders
+function seedNoteDataIfEmpty(): void {
+  const countRow = db.getFirstSync<{ count: number }>('SELECT COUNT(*) as count FROM Note_Categories;');
+  if (!countRow || countRow.count === 0) {
+    // Categorías principales (parent_id IS NULL)
+    const seriesId = generateUUID();
+    const personalId = generateUUID();
+    const ideasId = generateUUID();
+
+    db.runSync(`INSERT INTO Note_Categories (id, parent_id, name) VALUES (?, NULL, ?);`, [seriesId, 'Series']);
+    db.runSync(`INSERT INTO Note_Categories (id, parent_id, name) VALUES (?, NULL, ?);`, [personalId, 'Personal']);
+    db.runSync(`INSERT INTO Note_Categories (id, parent_id, name) VALUES (?, NULL, ?);`, [ideasId, 'Ideas']);
+
+    // Subcategorías (Nivel 2) de "Series"
+    const seriesAnimadasId = generateUUID();
+    const seriesNormalesId = generateUUID();
+
+    db.runSync(`INSERT INTO Note_Categories (id, parent_id, name) VALUES (?, ?, ?);`, [seriesAnimadasId, seriesId, 'Series Animadas']);
+    db.runSync(`INSERT INTO Note_Categories (id, parent_id, name) VALUES (?, ?, ?);`, [seriesNormalesId, seriesId, 'Series Normales']);
+
+    // Notas de muestra demostrando la prioridad de is_pinned DESC
+    db.runSync(
+      `INSERT INTO Notes (id, category_id, title, content, is_pinned) VALUES (?, ?, ?, ?, ?);`,
+      [
+        generateUUID(),
+        seriesAnimadasId,
+        '⭐ Series Animadas Pendientes',
+        '• Arcane: Temporada 2\n• Invincible\n• Cyberpunk: Edgerunners\n• Castlevania: Nocturne',
+        1, // Fijada
+      ]
+    );
+
+    db.runSync(
+      `INSERT INTO Notes (id, category_id, title, content, is_pinned) VALUES (?, ?, ?, ?, ?);`,
+      [
+        generateUUID(),
+        seriesNormalesId,
+        'Series Live Action Recomendadas',
+        '• Severance (Temporada 2)\n• Shōgun\n• The Bear',
+        0, // No fijada
+      ]
+    );
+
+    db.runSync(
+      `INSERT INTO Notes (id, category_id, title, content, is_pinned) VALUES (?, ?, ?, ?, ?);`,
+      [
+        generateUUID(),
+        personalId,
+        '⭐ Recordatorios Personales',
+        '• Revisar entrega de proyecto de Bitácora\n• Comprar insumos de trabajo\n• Programar copia de seguridad',
+        1, // Fijada
+      ]
+    );
+
+    db.runSync(
+      `INSERT INTO Notes (id, category_id, title, content, is_pinned) VALUES (?, ?, ?, ?, ?);`,
+      [
+        generateUUID(),
+        ideasId,
+        'Ideas de Diseño UI',
+        'Cuadrícula asimétrica Masonry para notas, pestañas tipo píldora horizontales y selector de subcategorías dinámico.',
+        0, // No fijada
+      ]
+    );
+  }
+}
+
+// -----------------------------------------------------------------------------
+// Operaciones de Proyectos / Folders & Tasks
+// -----------------------------------------------------------------------------
 export function getFolders(parentId: number | null = null): Folder[] {
   const query = parentId === null
     ? `
@@ -265,7 +391,6 @@ export function deleteFolder(id: number): void {
   db.runSync('DELETE FROM Folders WHERE id = ?;', [id]);
 }
 
-// Consultas y Operaciones de Tasks
 export function getTasks(folderId: number): Task[] {
   return db.getAllSync<Task>(
     'SELECT * FROM Tasks WHERE folder_id = ? ORDER BY id DESC;',
@@ -298,10 +423,194 @@ export function deleteTask(id: number): void {
   db.runSync('DELETE FROM Tasks WHERE id = ?;', [id]);
 }
 
-// Registro de Auditoría
 export function getAuditLogs(limit = 50): AuditLog[] {
   return db.getAllSync<AuditLog>(
     'SELECT * FROM Audit_Logs ORDER BY id DESC LIMIT ?;',
     [limit]
   );
+}
+
+// -----------------------------------------------------------------------------
+// Operaciones del Módulo de Notas (Note_Categories & Notes)
+// -----------------------------------------------------------------------------
+
+/**
+ * Retorna las categorías principales (donde parent_id IS NULL)
+ */
+export function getMainNoteCategories(): NoteCategory[] {
+  return db.getAllSync<NoteCategory>(`
+    SELECT 
+      c.*,
+      (SELECT COUNT(*) FROM Note_Categories sub WHERE sub.parent_id = c.id) AS subcategories_count,
+      (SELECT COUNT(*) FROM Notes n WHERE n.category_id = c.id OR n.category_id IN (SELECT id FROM Note_Categories sub WHERE sub.parent_id = c.id)) AS notes_count
+    FROM Note_Categories c
+    WHERE c.parent_id IS NULL
+    ORDER BY c.created_at ASC;
+  `);
+}
+
+/**
+ * Retorna las subcategorías (Nivel 2) dependientes de una categoría principal
+ */
+export function getSubcategories(parentId: string): NoteCategory[] {
+  return db.getAllSync<NoteCategory>(`
+    SELECT 
+      c.*,
+      0 AS subcategories_count,
+      (SELECT COUNT(*) FROM Notes n WHERE n.category_id = c.id) AS notes_count
+    FROM Note_Categories c
+    WHERE c.parent_id = ?
+    ORDER BY c.created_at ASC;
+  `, [parentId]);
+}
+
+/**
+ * Obtener todas las categorías para listados planos (ej: selectores)
+ */
+export function getAllNoteCategories(): NoteCategory[] {
+  return db.getAllSync<NoteCategory>(`
+    SELECT 
+      c.*,
+      (SELECT COUNT(*) FROM Note_Categories sub WHERE sub.parent_id = c.id) AS subcategories_count,
+      (SELECT COUNT(*) FROM Notes n WHERE n.category_id = c.id) AS notes_count
+    FROM Note_Categories c
+    ORDER BY c.name ASC;
+  `);
+}
+
+/**
+ * Crear una nueva categoría o subcategoría con UUID único
+ */
+export function createNoteCategory(name: string, parentId: string | null = null): string {
+  const id = generateUUID();
+  db.runSync(
+    'INSERT INTO Note_Categories (id, parent_id, name) VALUES (?, ?, ?);',
+    [id, parentId, name]
+  );
+  return id;
+}
+
+/**
+ * Eliminar una categoría y todas sus notas en cascada
+ */
+export function deleteNoteCategory(id: string): void {
+  db.runSync('DELETE FROM Note_Categories WHERE id = ?;', [id]);
+}
+
+/**
+ * Consultas de notas aplicando la lógica de ordenamiento priorizado:
+ * ORDER BY is_pinned DESC, updated_at DESC
+ */
+export function getNotes(categoryId?: string | null, isMainCategoryWithSubs = false): Note[] {
+  // Pestaña "Todo": Búsqueda global cruzada
+  if (!categoryId || categoryId === 'ALL') {
+    return db.getAllSync<Note>(`
+      SELECT 
+        n.*,
+        c.name AS category_name
+      FROM Notes n
+      LEFT JOIN Note_Categories c ON n.category_id = c.id
+      ORDER BY n.is_pinned DESC, n.updated_at DESC;
+    `);
+  }
+
+  // Categoría principal con subcategorías incluidas
+  if (isMainCategoryWithSubs) {
+    return db.getAllSync<Note>(`
+      SELECT 
+        n.*,
+        c.name AS category_name
+      FROM Notes n
+      LEFT JOIN Note_Categories c ON n.category_id = c.id
+      WHERE n.category_id = ? OR n.category_id IN (SELECT id FROM Note_Categories WHERE parent_id = ?)
+      ORDER BY n.is_pinned DESC, n.updated_at DESC;
+    `, [categoryId, categoryId]);
+  }
+
+  // Consulta base para categoría o subcategoría específica
+  return db.getAllSync<Note>(`
+    SELECT 
+      n.*,
+      c.name AS category_name
+    FROM Notes n
+    LEFT JOIN Note_Categories c ON n.category_id = c.id
+    WHERE n.category_id = ?
+    ORDER BY n.is_pinned DESC, n.updated_at DESC;
+  `, [categoryId]);
+}
+
+export function getNoteById(id: string): Note | null {
+  return db.getFirstSync<Note>(`
+    SELECT 
+      n.*,
+      c.name AS category_name
+    FROM Notes n
+    LEFT JOIN Note_Categories c ON n.category_id = c.id
+    WHERE n.id = ?;
+  `, [id]);
+}
+
+export function createNote(
+  categoryId: string,
+  title: string,
+  content = '',
+  isPinned = false
+): string {
+  const id = generateUUID();
+  const pinnedVal = isPinned ? 1 : 0;
+  db.runSync(
+    `INSERT INTO Notes (id, category_id, title, content, is_pinned, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, datetime('now', 'localtime'), datetime('now', 'localtime'));`,
+    [id, categoryId, title, content, pinnedVal]
+  );
+  return id;
+}
+
+export function updateNote(
+  id: string,
+  title: string,
+  content: string,
+  categoryId?: string,
+  isPinned?: boolean
+): void {
+  if (categoryId !== undefined && isPinned !== undefined) {
+    const pinnedVal = isPinned ? 1 : 0;
+    db.runSync(
+      `UPDATE Notes 
+       SET title = ?, content = ?, category_id = ?, is_pinned = ?, updated_at = datetime('now', 'localtime') 
+       WHERE id = ?;`,
+      [title, content, categoryId, pinnedVal, id]
+    );
+  } else if (categoryId !== undefined) {
+    db.runSync(
+      `UPDATE Notes 
+       SET title = ?, content = ?, category_id = ?, updated_at = datetime('now', 'localtime') 
+       WHERE id = ?;`,
+      [title, content, categoryId, id]
+    );
+  } else {
+    db.runSync(
+      `UPDATE Notes 
+       SET title = ?, content = ?, updated_at = datetime('now', 'localtime') 
+       WHERE id = ?;`,
+      [title, content, id]
+    );
+  }
+}
+
+/**
+ * Alternar el estado de fijado (Pin / Unpin)
+ */
+export function toggleNotePinned(id: string): void {
+  db.runSync(
+    `UPDATE Notes 
+     SET is_pinned = CASE WHEN is_pinned = 1 THEN 0 ELSE 1 END,
+         updated_at = datetime('now', 'localtime')
+     WHERE id = ?;`,
+    [id]
+  );
+}
+
+export function deleteNote(id: string): void {
+  db.runSync('DELETE FROM Notes WHERE id = ?;', [id]);
 }
