@@ -108,7 +108,10 @@ export const NotesView: React.FC = () => {
 
   const handleCreateCategorySubmit = (name: string, parentId: string | null) => {
     try {
-      createNoteCategory(name, parentId);
+      const newId = createNoteCategory(name, parentId);
+      if (parentId) {
+        setSelectedSubId(newId);
+      }
       loadData();
     } catch (e) {
       console.error('Error al crear categoría:', e);

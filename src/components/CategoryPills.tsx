@@ -25,7 +25,8 @@ export const CategoryPills: React.FC<CategoryPillsProps> = ({
   onAddSubcategory,
 }) => {
   const isAllSelected = selectedMainId === 'ALL';
-  const hasSubcategories = subcategories.length > 0 && !isAllSelected;
+  // El selector de subcategorías se renderiza SIEMPRE que se haya seleccionado una categoría específica
+  const isSpecificCategorySelected = !isAllSelected && selectedMainId !== null;
 
   return (
     <View className="mb-3">
@@ -124,7 +125,8 @@ export const CategoryPills: React.FC<CategoryPillsProps> = ({
       </ScrollView>
 
       {/* 2. Selector de Subcategorías (Nivel 2) */}
-      {hasSubcategories && (
+      {/* Se renderiza siempre que el usuario haya seleccionado una categoría específica, sin importar si esta tiene o no subcategorías previas */}
+      {isSpecificCategorySelected && (
         <View className="mt-2 pt-2 border-t border-slate-200">
           <ScrollView
             horizontal={true}
@@ -158,7 +160,7 @@ export const CategoryPills: React.FC<CategoryPillsProps> = ({
               </Text>
             </Pressable>
 
-            {/* Subcategorías dependientes */}
+            {/* 1. Subcategorías existentes (si las hay) */}
             {subcategories.map((sub) => {
               const isSubSelected = selectedSubId === sub.id;
               return (
@@ -184,7 +186,7 @@ export const CategoryPills: React.FC<CategoryPillsProps> = ({
               );
             })}
 
-            {/* Botón para añadir subcategoría a la categoría actual */}
+            {/* 2. Botón estático "+ Subcategoría" SIEMPRE visible al final del ScrollView */}
             {onAddSubcategory && (
               <Pressable
                 onPress={() => onAddSubcategory(selectedMainId)}
@@ -192,7 +194,7 @@ export const CategoryPills: React.FC<CategoryPillsProps> = ({
                 className="px-2.5 py-1 rounded-xl border border-dashed border-slate-300 bg-slate-50 flex-row items-center mr-4"
               >
                 <Plus size={11} color="#64748B" />
-                <Text className="text-[10px] text-slate-500 ml-1">Subcategoría</Text>
+                <Text className="text-[10px] text-slate-500 ml-1 font-semibold">+ Subcategoría</Text>
               </Pressable>
             )}
           </ScrollView>

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, TextInput, Modal, TouchableOpacity } from 'react-native';
+import { View, Text, TextInput, Modal, Pressable } from 'react-native';
 import { X, FolderPlus } from 'lucide-react-native';
 
 interface CreateCategoryModalProps {
@@ -41,9 +41,9 @@ export const CreateCategoryModal: React.FC<CreateCategoryModalProps> = ({
                 {isSubcategory ? 'Nueva Subcategoría' : 'Nueva Categoría'}
               </Text>
             </View>
-            <TouchableOpacity onPress={onClose} className="p-1">
+            <Pressable onPress={onClose} style={({ pressed }) => [{ opacity: pressed ? 0.6 : 1 }]} className="p-1">
               <X size={20} color="#94A3B8" />
-            </TouchableOpacity>
+            </Pressable>
           </View>
 
           {isSubcategory && Boolean(parentName) && (
@@ -58,27 +58,31 @@ export const CreateCategoryModal: React.FC<CreateCategoryModalProps> = ({
             Nombre de la {isSubcategory ? 'subcategoría' : 'categoría'}
           </Text>
           <TextInput
-            placeholder={isSubcategory ? "Ej: Series Animadas, En emisión..." : "Ej: Series, Películas, Libros..."}
+            placeholder={isSubcategory ? "Ej: Series Animadas, En emisión..." : "Ej: Videojuegos, Películas, Libros..."}
             placeholderTextColor="#94A3B8"
             value={name}
             onChangeText={setName}
+            onSubmitEditing={handleCreate}
+            returnKeyType="done"
             autoFocus
             className="border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm text-slate-800 bg-slate-50 mb-5"
           />
 
           <View className="flex-row space-x-3">
-            <TouchableOpacity
+            <Pressable
               onPress={onClose}
+              style={({ pressed }) => [{ opacity: pressed ? 0.7 : 1 }]}
               className="flex-1 py-3 rounded-xl bg-slate-100 items-center mr-2"
             >
               <Text className="text-sm font-semibold text-slate-600">Cancelar</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
+            </Pressable>
+            <Pressable
               onPress={handleCreate}
+              style={({ pressed }) => [{ opacity: pressed ? 0.7 : 1 }]}
               className="flex-1 py-3 rounded-xl bg-blue-600 items-center ml-2"
             >
               <Text className="text-sm font-semibold text-white">Crear</Text>
-            </TouchableOpacity>
+            </Pressable>
           </View>
         </View>
       </View>
