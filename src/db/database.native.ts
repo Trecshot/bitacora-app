@@ -81,8 +81,9 @@ export const db = SQLite.openDatabaseSync('bitacora.db');
  * y las tablas independientes de Notas (Note_Categories, Notes) sin colisiones.
  */
 export function initDatabase(): void {
-  // Activar claves foráneas
+  // Activar claves foráneas y modo WAL (Write-Ahead Logging) para concurrencia y máxima velocidad
   db.execSync('PRAGMA foreign_keys = ON;');
+  db.execSync('PRAGMA journal_mode = WAL;');
 
   // Migración de Tablas de Proyectos
   db.execSync(`
@@ -417,6 +418,32 @@ export function updateTaskStatus(id: number, status: TaskStatus): void {
     'UPDATE Tasks SET status = ?, updated_at = datetime(\'now\', \'localtime\') WHERE id = ?;',
     [status, id]
   );
+}
+
+// Ejecución de transacciones SQL en segundo plano con resolución de promesas (Modo WAL)
+export async function updateTaskStatusAsync(id: number, status: TaskStatus): Promise<void> {
+  await db.runAsync(
+    'UPDATE Tasks SET status = ?, updated_at = datetime(\'now\', \'localtime\') WHERE id = ?;',
+    [status, id]
+  );
+}
+
+export async function createTaskAsync(
+  folderId: number,
+  title: string,
+  description = '',
+  status: TaskStatus = 'TODO',
+  priority: TaskPriority = 'MEDIUM'
+): Promise<number> {
+  const result = await db.runAsync(
+    'INSERT INTO Tasks (folder_id, title, description, status, priority) VALUES (?, ?, ?, ?, ?);',
+    [folderId, title, description, status, priority]
+  );
+  return result.lastInsertRowId;
+}
+
+export async function deleteTaskAsync(id: number): Promise<void> {
+  await db.runAsync('DELETE FROM Tasks WHERE id = ?;', [id]);
 }
 
 export function deleteTask(id: number): void {

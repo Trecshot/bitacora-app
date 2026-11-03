@@ -295,6 +295,24 @@ export function updateTaskStatus(id: number, status: TaskStatus): void {
   }
 }
 
+export async function updateTaskStatusAsync(id: number, status: TaskStatus): Promise<void> {
+  updateTaskStatus(id, status);
+}
+
+export async function createTaskAsync(
+  folderId: number,
+  title: string,
+  description = '',
+  status: TaskStatus = 'TODO',
+  priority: TaskPriority = 'MEDIUM'
+): Promise<number> {
+  return createTask(folderId, title, description, status, priority);
+}
+
+export async function deleteTaskAsync(id: number): Promise<void> {
+  deleteTask(id);
+}
+
 export function deleteTask(id: number): void {
   initDatabase();
   const task = inMemoryTasks.find((t) => t.id === id);

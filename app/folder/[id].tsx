@@ -14,30 +14,30 @@ import {
   FolderPlus,
   Folder as FolderIcon,
   CheckCircle2,
-  Clock,
   ListTodo,
   Layers,
+  Kanban as KanbanIcon,
+  LayoutList,
+  Zap,
 } from 'lucide-react-native';
 import {
   getFolderById,
   getFolders,
-  getTasks,
   createFolder,
-  createTask,
-  updateTaskStatus,
-  deleteTask,
   deleteFolder,
   Folder,
-  Task,
   TaskStatus,
   TaskPriority,
 } from '../../src/db/database';
+import { useKanbanStore } from '../../src/store/useKanbanStore';
 import { FolderCard } from '../../src/components/FolderCard';
-import { TaskItem } from '../../src/components/TaskItem';
+import { OptimizedKanbanCard } from '../../src/components/OptimizedKanbanCard';
+import { KanbanBoardView } from '../../src/components/KanbanBoardView';
 import { CreateFolderModal } from '../../src/components/CreateFolderModal';
 import { CreateTaskModal } from '../../src/components/CreateTaskModal';
 
 type FilterTab = 'ALL' | 'TODO' | 'IN_PROGRESS' | 'DONE';
+type ViewMode = 'KANBAN' | 'LIST';
 
 export default function FolderDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -46,12 +46,22 @@ export default function FolderDetailScreen() {
 
   const [folder, setFolder] = useState<Folder | null>(null);
   const [subfolders, setSubfolders] = useState<Folder[]>([]);
-  const [tasks, setTasks] = useState<Task[]>([]);
   const [activeTab, setActiveTab] = useState<FilterTab>('ALL');
+  const [viewMode, setViewMode] = useState<ViewMode>('KANBAN');
   const [refreshing, setRefreshing] = useState(false);
 
   const [isFolderModalOpen, setIsFolderModalOpen] = useState(false);
   const [isTaskModalOpen, setIsTaskModalOpen] = useState(false);
+  const [initialTaskStatus, setInitialTaskStatus] = useState<TaskStatus>('TODO');
+
+  // Zustand Store con Optimistic UI
+  const {
+    tasks,
+    loadTasksForFolder,
+    moveTaskStatusOptimistic,
+    createTaskOptimistic,
+    deleteTaskOptimistic,
+  } = useKanbanStore();
 
   const loadData = useCallback(() => {
     if (!folderId) return;
@@ -62,12 +72,12 @@ export default function FolderDetailScreen() {
       const subs = getFolders(folderId);
       setSubfolders(subs);
 
-      const taskList = getTasks(folderId);
-      setTasks(taskList);
+      // Cargar tareas al Store
+      loadTasksForFolder(folderId);
     } catch (e) {
       console.error('Error cargando detalle de carpeta:', e);
     }
-  }, [folderId]);
+  }, [folderId, loadTasksForFolder]);
 
   useFocusEffect(
     useCallback(() => {
@@ -90,45 +100,35 @@ export default function FolderDetailScreen() {
     }
   };
 
-  const handleCreateTask = (
+  const handleCreateTask = async (
     title: string,
     description: string,
     priority: TaskPriority,
     status: TaskStatus
   ) => {
     try {
-      createTask(folderId, title, description, status, priority);
-      loadData();
+      await createTaskOptimistic(folderId, title, description, status, priority);
     } catch (e) {
       Alert.alert('Error', 'No se pudo registrar la tarea.');
     }
   };
 
   const handleStatusChange = (taskId: number, nextStatus: TaskStatus) => {
-    try {
-      updateTaskStatus(taskId, nextStatus);
-      loadData();
-    } catch (e) {
-      Alert.alert('Error', 'No se pudo actualizar el estado de la tarea.');
-    }
+    // Optimistic UI: actualización instantánea en UI thread / store antes de persistir
+    moveTaskStatusOptimistic(taskId, nextStatus);
   };
 
   const handleDeleteTask = (taskId: number) => {
     Alert.alert(
       'Eliminar Tarea',
-      '¿Deseas eliminar esta tarea? El trigger registrará la eliminación en la auditoría.',
+      '¿Deseas eliminar esta tarea? El trigger registrará la auditoría en SQLite.',
       [
         { text: 'Cancelar', style: 'cancel' },
         {
           text: 'Eliminar',
           style: 'destructive',
           onPress: () => {
-            try {
-              deleteTask(taskId);
-              loadData();
-            } catch (e) {
-              Alert.alert('Error', 'No se pudo eliminar la tarea.');
-            }
+            deleteTaskOptimistic(taskId);
           },
         },
       ]
@@ -157,7 +157,12 @@ export default function FolderDetailScreen() {
     );
   };
 
-  // Filtrado de Tareas
+  const openCreateTaskForStatus = (status: TaskStatus) => {
+    setInitialTaskStatus(status);
+    setIsTaskModalOpen(true);
+  };
+
+  // Filtrado para la vista en lista
   const filteredTasks = tasks.filter((t) => {
     if (activeTab === 'ALL') return true;
     return t.status === activeTab;
@@ -204,7 +209,7 @@ export default function FolderDetailScreen() {
             </View>
           </View>
 
-          {/* Métricas del Tablero Kanban */}
+          {/* Métricas del Tablero Kanban con indicador Optimistic UI */}
           <View className="flex-row justify-between bg-slate-50 p-2.5 rounded-2xl border border-slate-100">
             <View className="flex-1 items-center py-1">
               <Text className="text-xs text-slate-500 font-medium">Por Hacer</Text>
@@ -220,6 +225,17 @@ export default function FolderDetailScreen() {
               <Text className="text-xs text-emerald-600 font-medium">Completadas</Text>
               <Text className="text-base font-bold text-emerald-700">{countDone}</Text>
             </View>
+          </View>
+
+          {/* Badge de Arquitectura de Rendimiento */}
+          <View className="mt-3 pt-2.5 border-t border-slate-100 flex-row items-center justify-between">
+            <View className="flex-row items-center">
+              <Zap size={13} color="#2563EB" />
+              <Text className="text-[11px] font-semibold text-blue-600 ml-1">
+                Motor 60 FPS • UI Thread • SQLite WAL
+              </Text>
+            </View>
+            <Text className="text-[10px] text-slate-400 font-medium">Optimistic UI</Text>
           </View>
         </View>
 
@@ -251,70 +267,112 @@ export default function FolderDetailScreen() {
           ))}
         </View>
 
-        {/* Sección: Tareas (Kanban) */}
+        {/* Sección: Tareas (Tablero Kanban Optimizado) */}
         <View className="mb-6">
           <View className="flex-row items-center justify-between mb-3">
             <View className="flex-row items-center">
               <ListTodo size={16} color="#64748B" />
               <Text className="text-sm font-bold text-slate-700 ml-1.5">
-                Tareas ({tasks.length})
+                Tablero Kanban ({tasks.length})
               </Text>
             </View>
-            <TouchableOpacity
-              onPress={() => setIsTaskModalOpen(true)}
-              className="flex-row items-center bg-emerald-600 px-3 py-1.5 rounded-xl shadow-sm shadow-emerald-600/20"
-            >
-              <Plus size={14} color="#FFFFFF" />
-              <Text className="text-xs font-semibold text-white ml-1">Nueva Tarea</Text>
-            </TouchableOpacity>
-          </View>
 
-          {/* Filtros de Pestaña Kanban */}
-          <View className="flex-row space-x-1.5 bg-slate-200/60 p-1 rounded-xl mb-3">
-            {[
-              { id: 'ALL', label: 'Todas' },
-              { id: 'TODO', label: 'Por Hacer' },
-              { id: 'IN_PROGRESS', label: 'En Progreso' },
-              { id: 'DONE', label: 'Completado' },
-            ].map((tab) => (
-              <TouchableOpacity
-                key={tab.id}
-                onPress={() => setActiveTab(tab.id as FilterTab)}
-                className={`flex-1 py-1.5 rounded-lg items-center ${
-                  activeTab === tab.id ? 'bg-white shadow-sm' : ''
-                }`}
-              >
-                <Text
-                  className={`text-[11px] font-bold ${
-                    activeTab === tab.id ? 'text-slate-800' : 'text-slate-500'
+            <View className="flex-row items-center space-x-2">
+              {/* Conmutador de Vistas: Columnas Kanban vs Lista Táctil */}
+              <View className="flex-row bg-slate-200/80 p-0.5 rounded-xl mr-2">
+                <TouchableOpacity
+                  onPress={() => setViewMode('KANBAN')}
+                  className={`p-1.5 rounded-lg ${
+                    viewMode === 'KANBAN' ? 'bg-white shadow-sm' : ''
                   }`}
                 >
-                  {tab.label}
-                </Text>
+                  <KanbanIcon
+                    size={15}
+                    color={viewMode === 'KANBAN' ? '#1E293B' : '#64748B'}
+                  />
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => setViewMode('LIST')}
+                  className={`p-1.5 rounded-lg ${
+                    viewMode === 'LIST' ? 'bg-white shadow-sm' : ''
+                  }`}
+                >
+                  <LayoutList
+                    size={15}
+                    color={viewMode === 'LIST' ? '#1E293B' : '#64748B'}
+                  />
+                </TouchableOpacity>
+              </View>
+
+              <TouchableOpacity
+                onPress={() => openCreateTaskForStatus('TODO')}
+                className="flex-row items-center bg-emerald-600 px-3 py-1.5 rounded-xl shadow-sm shadow-emerald-600/20"
+              >
+                <Plus size={14} color="#FFFFFF" />
+                <Text className="text-xs font-semibold text-white ml-1">Nueva Tarea</Text>
               </TouchableOpacity>
-            ))}
+            </View>
           </View>
 
-          {/* Lista de Tareas Deslizables */}
-          {filteredTasks.length === 0 ? (
-            <View className="py-10 bg-white rounded-2xl border border-slate-100 items-center justify-center p-4">
-              <CheckCircle2 size={32} color="#CBD5E1" />
-              <Text className="text-sm font-semibold text-slate-600 mt-2">
-                No hay tareas en esta sección
-              </Text>
-              <Text className="text-xs text-slate-400 text-center mt-0.5">
-                Agrega una tarea o desliza las existentes lateralmente para moverlas entre estados.
-              </Text>
-            </View>
+          {viewMode === 'KANBAN' ? (
+            /* Vista 1: Tablero Multicolumna Kanban Horizontal */
+            <KanbanBoardView
+              tasks={tasks}
+              onMoveStatus={handleStatusChange}
+              onDeleteTask={handleDeleteTask}
+              onOpenCreateTask={openCreateTaskForStatus}
+            />
           ) : (
-            filteredTasks.map((task) => (
-              <TaskItem
-                key={task.id}
-                task={task}
-                onStatusChange={handleStatusChange}
-                onDelete={handleDeleteTask}
-              />
-            ))
+            /* Vista 2: Lista con Pestañas y Gestos de Arrastre Continuo */
+            <View>
+              {/* Filtros de Pestaña Kanban */}
+              <View className="flex-row space-x-1.5 bg-slate-200/60 p-1 rounded-xl mb-3">
+                {[
+                  { id: 'ALL', label: 'Todas' },
+                  { id: 'TODO', label: 'Por Hacer' },
+                  { id: 'IN_PROGRESS', label: 'En Progreso' },
+                  { id: 'DONE', label: 'Completado' },
+                ].map((tab) => (
+                  <TouchableOpacity
+                    key={tab.id}
+                    onPress={() => setActiveTab(tab.id as FilterTab)}
+                    className={`flex-1 py-1.5 rounded-lg items-center ${
+                      activeTab === tab.id ? 'bg-white shadow-sm' : ''
+                    }`}
+                  >
+                    <Text
+                      className={`text-[11px] font-bold ${
+                        activeTab === tab.id ? 'text-slate-800' : 'text-slate-500'
+                      }`}
+                    >
+                      {tab.label}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              {/* Lista de Tarjetas Optimizadas con Gestos 60 FPS */}
+              {filteredTasks.length === 0 ? (
+                <View className="py-10 bg-white rounded-2xl border border-slate-100 items-center justify-center p-4">
+                  <CheckCircle2 size={32} color="#CBD5E1" />
+                  <Text className="text-sm font-semibold text-slate-600 mt-2">
+                    No hay tareas en esta sección
+                  </Text>
+                  <Text className="text-xs text-slate-400 text-center mt-0.5">
+                    Mantén y arrastra lateralmente para mover entre estados Kanban.
+                  </Text>
+                </View>
+              ) : (
+                filteredTasks.map((task) => (
+                  <OptimizedKanbanCard
+                    key={task.id}
+                    task={task}
+                    onMoveStatus={handleStatusChange}
+                    onDelete={handleDeleteTask}
+                  />
+                ))
+              )}
+            </View>
           )}
         </View>
       </ScrollView>
@@ -330,6 +388,7 @@ export default function FolderDetailScreen() {
         visible={isTaskModalOpen}
         onClose={() => setIsTaskModalOpen(false)}
         onSubmit={handleCreateTask}
+        defaultStatus={initialTaskStatus}
       />
     </SafeAreaView>
   );

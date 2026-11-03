@@ -7,6 +7,7 @@ interface CreateTaskModalProps {
   visible: boolean;
   onClose: () => void;
   onSubmit: (title: string, description: string, priority: TaskPriority, status: TaskStatus) => void;
+  defaultStatus?: TaskStatus;
 }
 
 const PRIORITIES: { label: string; value: TaskPriority }[] = [
@@ -19,6 +20,7 @@ export const CreateTaskModal: React.FC<CreateTaskModalProps> = ({
   visible,
   onClose,
   onSubmit,
+  defaultStatus = 'TODO',
 }) => {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
@@ -26,7 +28,7 @@ export const CreateTaskModal: React.FC<CreateTaskModalProps> = ({
 
   const handleCreate = () => {
     if (!title.trim()) return;
-    onSubmit(title.trim(), description.trim(), priority, 'TODO');
+    onSubmit(title.trim(), description.trim(), priority, defaultStatus);
     setTitle('');
     setDescription('');
     setPriority('MEDIUM');

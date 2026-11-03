@@ -41,6 +41,12 @@ export const deleteFolder = (id: number) => getModule().deleteFolder(id);
 export const getTasks = (folderId: number) => getModule().getTasks(folderId);
 export const createTask = (...args: any[]) => (getModule().createTask as any)(...args);
 export const updateTaskStatus = (id: number, status: any) => getModule().updateTaskStatus(id, status);
+export const updateTaskStatusAsync = (id: number, status: any): Promise<void> =>
+  getModule().updateTaskStatusAsync(id, status);
+export const createTaskAsync = (...args: any[]): Promise<number> =>
+  (getModule().createTaskAsync as any)(...args);
+export const deleteTaskAsync = (id: number): Promise<void> =>
+  getModule().deleteTaskAsync(id);
 export const deleteTask = (id: number) => getModule().deleteTask(id);
 export const getAuditLogs = (limit?: number) => getModule().getAuditLogs(limit);
 
