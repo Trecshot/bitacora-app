@@ -30,7 +30,7 @@ export const NoteCard: React.FC<NoteCardProps> = ({
       className={`rounded-2xl p-3.5 mb-3 border flex-1 ${
         isPinned
           ? 'bg-amber-50/70 border-amber-200/90 shadow-sm'
-          : 'bg-white border-slate-200/80 shadow-xs'
+          : 'bg-white border-slate-200/80 shadow-sm'
       }`}
       style={{
         shadowColor: isPinned ? '#D97706' : '#64748B',

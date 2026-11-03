@@ -6,9 +6,9 @@ import {
   TextInput,
   TouchableOpacity,
   Alert,
-  SafeAreaView,
   RefreshControl,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect, Stack } from 'expo-router';
 import {
   FolderPlus,
@@ -135,7 +135,7 @@ export default function HomeScreen() {
             activeOpacity={0.8}
             onPress={() => setActiveModule('NOTES')}
             className={`flex-1 py-2 rounded-xl flex-row items-center justify-center ${
-              activeModule === 'NOTES' ? 'bg-white shadow-xs' : ''
+              activeModule === 'NOTES' ? 'bg-white shadow-sm' : ''
             }`}
           >
             <FileText size={15} color={activeModule === 'NOTES' ? '#2563EB' : '#64748B'} />
@@ -155,7 +155,7 @@ export default function HomeScreen() {
               loadData();
             }}
             className={`flex-1 py-2 rounded-xl flex-row items-center justify-center ${
-              activeModule === 'PROJECTS' ? 'bg-white shadow-xs' : ''
+              activeModule === 'PROJECTS' ? 'bg-white shadow-sm' : ''
             }`}
           >
             <FolderKanban size={15} color={activeModule === 'PROJECTS' ? '#2563EB' : '#64748B'} />

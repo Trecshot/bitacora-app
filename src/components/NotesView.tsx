@@ -5,8 +5,8 @@ import {
   FlatList,
   TextInput,
   RefreshControl,
-  SafeAreaView,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { Search, StickyNote } from 'lucide-react-native';
 import {
@@ -141,7 +141,7 @@ export const NotesView: React.FC = () => {
       <View className="flex-1">
         {/* Barra de Búsqueda Rápida de Notas */}
         <View className="px-4 pt-2 pb-1">
-          <View className="flex-row items-center bg-white px-3.5 py-2.5 rounded-2xl border border-slate-200/80 shadow-xs">
+          <View className="flex-row items-center bg-white px-3.5 py-2.5 rounded-2xl border border-slate-200/80 shadow-sm">
             <Search size={18} color="#94A3B8" />
             <TextInput
               placeholder="Buscar en notas y apuntes..."

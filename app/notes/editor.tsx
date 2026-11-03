@@ -5,11 +5,11 @@ import {
   TextInput,
   TouchableOpacity,
   ScrollView,
-  SafeAreaView,
   Alert,
   KeyboardAvoidingView,
   Platform,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams, Stack } from 'expo-router';
 import {
   ArrowLeft,
@@ -196,7 +196,7 @@ export default function NoteEditorScreen() {
         <View className="px-5 py-2.5 bg-slate-50 border-b border-slate-100 flex-row items-center justify-between">
           <TouchableOpacity
             onPress={() => setShowCategorySelector(!showCategorySelector)}
-            className="flex-row items-center bg-white px-3 py-1.5 rounded-xl border border-slate-200/80 shadow-xs"
+            className="flex-row items-center bg-white px-3 py-1.5 rounded-xl border border-slate-200/80 shadow-sm"
           >
             <Tag size={13} color="#2563EB" />
             <Text className="text-xs font-semibold text-slate-700 ml-1.5">

@@ -5,9 +5,9 @@ import {
   ScrollView,
   TouchableOpacity,
   Alert,
-  SafeAreaView,
   RefreshControl,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter, useFocusEffect, Stack } from 'expo-router';
 import {
   Plus,
@@ -281,7 +281,7 @@ export default function FolderDetailScreen() {
                 key={tab.id}
                 onPress={() => setActiveTab(tab.id as FilterTab)}
                 className={`flex-1 py-1.5 rounded-lg items-center ${
-                  activeTab === tab.id ? 'bg-white shadow-xs' : ''
+                  activeTab === tab.id ? 'bg-white shadow-sm' : ''
                 }`}
               >
                 <Text
