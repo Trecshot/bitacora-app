@@ -49,13 +49,6 @@ export default function RootLayout() {
           }}
         />
         <Stack.Screen
-          name="notes/index"
-          options={{
-            title: 'Bloc de Notas',
-            headerBackTitle: 'Atrás',
-          }}
-        />
-        <Stack.Screen
           name="notes/editor"
           options={{
             title: 'Nota',
