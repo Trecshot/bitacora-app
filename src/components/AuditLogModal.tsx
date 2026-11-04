@@ -1,7 +1,8 @@
 import React from 'react';
 import { View, Text, Modal, TouchableOpacity, ScrollView } from 'react-native';
-import { X, History, Sparkles } from 'lucide-react-native';
+import { X, History, CheckCircle2, ArrowRightLeft, PlusCircle, Trash2, Edit3 } from 'lucide-react-native';
 import { AuditLog } from '../db/database';
+import { parseAuditLogEntry, ParsedAuditEntry } from '../utils/auditParser';
 
 interface AuditLogModalProps {
   visible: boolean;
@@ -16,18 +17,38 @@ export const AuditLogModal: React.FC<AuditLogModalProps> = ({
   logs,
   onRefresh,
 }) => {
-  const getActionBadge = (action: string) => {
-    switch (action) {
+  const getBadgeStyle = (type: ParsedAuditEntry['badgeType']) => {
+    switch (type) {
       case 'CREATE':
-        return { label: 'INSERT', bg: 'bg-emerald-100 text-emerald-800' };
-      case 'STATUS_CHANGE':
-        return { label: 'STATUS TRIGGER', bg: 'bg-blue-100 text-blue-800' };
-      case 'UPDATE':
-        return { label: 'UPDATE', bg: 'bg-amber-100 text-amber-800' };
+        return {
+          bg: 'bg-emerald-50 border-emerald-200',
+          text: 'text-emerald-700',
+          icon: <PlusCircle size={12} color="#059669" />,
+        };
+      case 'STATUS':
+        return {
+          bg: 'bg-blue-50 border-blue-200',
+          text: 'text-blue-700',
+          icon: <ArrowRightLeft size={12} color="#2563EB" />,
+        };
+      case 'PRIORITY':
+        return {
+          bg: 'bg-amber-50 border-amber-200',
+          text: 'text-amber-700',
+          icon: <Edit3 size={12} color="#D97706" />,
+        };
       case 'DELETE':
-        return { label: 'DELETE', bg: 'bg-rose-100 text-rose-800' };
+        return {
+          bg: 'bg-rose-50 border-rose-200',
+          text: 'text-rose-700',
+          icon: <Trash2 size={12} color="#E11D48" />,
+        };
       default:
-        return { label: action, bg: 'bg-slate-100 text-slate-800' };
+        return {
+          bg: 'bg-slate-100 border-slate-200',
+          text: 'text-slate-700',
+          icon: <CheckCircle2 size={12} color="#475569" />,
+        };
     }
   };
 
@@ -42,13 +63,10 @@ export const AuditLogModal: React.FC<AuditLogModalProps> = ({
                 <History size={20} color="#7C3AED" />
               </View>
               <View>
-                <Text className="text-lg font-bold text-slate-800">Historial de Auditoría</Text>
-                <View className="flex-row items-center">
-                  <Sparkles size={11} color="#10B981" />
-                  <Text className="text-xs text-slate-500 ml-1">
-                    Generado automáticamente por Triggers SQLite
-                  </Text>
-                </View>
+                <Text className="text-lg font-bold text-slate-800">Historial de Actividad</Text>
+                <Text className="text-xs text-slate-500">
+                  Registro cronológico de cambios en tareas y carpetas
+                </Text>
               </View>
             </View>
             <TouchableOpacity onPress={onClose} className="p-2">
@@ -56,48 +74,44 @@ export const AuditLogModal: React.FC<AuditLogModalProps> = ({
             </TouchableOpacity>
           </View>
 
-          {/* Lista de Registros de Auditoría */}
+          {/* Lista de Registros de Auditoría con Lenguaje Natural */}
           <ScrollView className="flex-1 mt-4" showsVerticalScrollIndicator={false}>
             {logs.length === 0 ? (
               <View className="py-12 items-center">
-                <Text className="text-sm text-slate-400">No hay registros de auditoría aún.</Text>
+                <Text className="text-sm text-slate-400">No hay actividad registrada aún.</Text>
               </View>
             ) : (
               logs.map((log) => {
-                const badge = getActionBadge(log.action);
+                const parsed = parseAuditLogEntry(log);
+                const style = getBadgeStyle(parsed.badgeType);
+
                 return (
                   <View
                     key={log.id}
                     className="p-3.5 mb-2.5 rounded-2xl bg-slate-50 border border-slate-200/80"
                   >
                     <View className="flex-row items-center justify-between mb-1.5">
-                      <View className="flex-row items-center space-x-2">
-                        <View className={`px-2 py-0.5 rounded-md ${badge.bg}`}>
-                          <Text className="text-[10px] font-bold tracking-wider">{badge.label}</Text>
-                        </View>
-                        <Text className="text-xs font-semibold text-slate-700 ml-2">
-                          {log.entity_type} #{log.entity_id}
+                      <View className={`flex-row items-center px-2 py-0.5 rounded-md border ${style.bg}`}>
+                        {style.icon}
+                        <Text className={`text-[10px] font-bold tracking-wide ml-1 ${style.text}`}>
+                          {parsed.badgeLabel}
                         </Text>
                       </View>
-                      <Text className="text-[10px] text-slate-400">{log.timestamp}</Text>
+                      <Text className="text-[11px] text-slate-400">{log.timestamp}</Text>
                     </View>
 
-                    {Boolean(log.old_value) && (
-                      <View className="mt-1">
-                        <Text className="text-[10px] font-semibold text-slate-400">VALOR ANTERIOR:</Text>
-                        <Text className="text-xs text-slate-600 font-mono bg-white p-1.5 rounded-lg border border-slate-200/60 mt-0.5">
-                          {log.old_value}
-                        </Text>
-                      </View>
-                    )}
+                    <Text className="text-sm font-bold text-slate-800 mt-0.5" numberOfLines={1}>
+                      {parsed.title}
+                    </Text>
 
-                    {Boolean(log.new_value) && (
-                      <View className="mt-1">
-                        <Text className="text-[10px] font-semibold text-emerald-600">NUEVO VALOR:</Text>
-                        <Text className="text-xs text-slate-700 font-mono bg-white p-1.5 rounded-lg border border-slate-200/60 mt-0.5">
-                          {log.new_value}
-                        </Text>
-                      </View>
+                    <Text className="text-xs text-slate-600 mt-1 leading-relaxed">
+                      {parsed.summary}
+                    </Text>
+
+                    {Boolean(parsed.detail) && (
+                      <Text className="text-[11px] text-slate-400 mt-1 font-medium">
+                        {parsed.detail}
+                      </Text>
                     )}
                   </View>
                 );
@@ -110,7 +124,7 @@ export const AuditLogModal: React.FC<AuditLogModalProps> = ({
             onPress={onRefresh}
             className="w-full py-3.5 bg-purple-600 rounded-xl items-center mt-3"
           >
-            <Text className="text-white text-sm font-semibold">Refrescar Registros</Text>
+            <Text className="text-white text-sm font-semibold">Actualizar Historial</Text>
           </TouchableOpacity>
         </View>
       </View>

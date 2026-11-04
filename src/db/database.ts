@@ -35,8 +35,12 @@ export const db = new Proxy({} as any, {
 export const initDatabase: () => void = () => getModule().initDatabase();
 export const getFolders = (parentId?: number | null) => getModule().getFolders(parentId);
 export const getFolderById = (id: number) => getModule().getFolderById(id);
-export const createFolder = (name: string, parentId?: number | null, color?: string) =>
-  getModule().createFolder(name, parentId, color);
+export const createFolder = (name: string, parentId?: number | null, color?: string, description?: string) =>
+  getModule().createFolder(name, parentId, color, description);
+export const updateFolderDescription = (id: number, description: string) =>
+  getModule().updateFolderDescription(id, description);
+export const updateFolderDescriptionAsync = (id: number, description: string): Promise<void> =>
+  getModule().updateFolderDescriptionAsync(id, description);
 export const deleteFolder = (id: number) => getModule().deleteFolder(id);
 export const getTasks = (folderId: number) => getModule().getTasks(folderId);
 export const createTask = (...args: any[]) => (getModule().createTask as any)(...args);
@@ -48,7 +52,12 @@ export const createTaskAsync = (...args: any[]): Promise<number> =>
 export const deleteTaskAsync = (id: number): Promise<void> =>
   getModule().deleteTaskAsync(id);
 export const deleteTask = (id: number) => getModule().deleteTask(id);
-export const getAuditLogs = (limit?: number) => getModule().getAuditLogs(limit);
+export const getAuditLogs = (limit?: number, taskId?: number) =>
+  getModule().getAuditLogs(limit, taskId);
+export const getProjectAuditLogs = (folderId: number, limit?: number, offset?: number) =>
+  getModule().getProjectAuditLogs(folderId, limit, offset);
+export const getProjectAuditLogsAsync = (folderId: number, limit?: number, offset?: number): Promise<any[]> =>
+  getModule().getProjectAuditLogsAsync(folderId, limit, offset);
 
 export const getMainNoteCategories = () => getModule().getMainNoteCategories();
 export const getSubcategories = (parentId: string) => getModule().getSubcategories(parentId);

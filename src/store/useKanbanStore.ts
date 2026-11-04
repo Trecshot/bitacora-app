@@ -9,6 +9,13 @@ import {
   deleteTaskAsync,
 } from '../db/database';
 
+// Mapa de timers de debounce por tarea para diferir escrituras SQLite
+// hasta que la animación de caída (drop) en el UI Thread haya finalizado.
+const statusUpdateDebounceMap = new Map<number, ReturnType<typeof setTimeout>>();
+const initialStatusSnapshotMap = new Map<number, TaskStatus>();
+
+const DEBOUNCE_SQLITE_MS = 280;
+
 interface KanbanStoreState {
   tasks: Task[];
   activeFolderId: number | null;
@@ -18,7 +25,7 @@ interface KanbanStoreState {
   // Acciones de carga
   loadTasksForFolder: (folderId: number) => void;
 
-  // 1. Actualización instantánea de la interfaz gráfica (Optimistic UI)
+  // 1. Actualización instantánea en UI + Persistencia SQLite asíncrona diferida (debounce)
   moveTaskStatusOptimistic: (taskId: number, newStatus: TaskStatus) => Promise<void>;
 
   // 2. Creación instantánea (Optimistic UI) con persistencia en segundo plano
@@ -51,38 +58,61 @@ export const useKanbanStore = create<KanbanStoreState>((set, get) => ({
   },
 
   /**
-   * Actualización instantánea de la interfaz gráfica antes de la confirmación
-   * de la base de datos (Patrón Optimistic UI) para eliminar la latencia percibida.
+   * Actualización instantánea en memoria (Optimistic UI) combinada con
+   * escritura SQLite asíncrona y diferida (debounce) para no bloquear
+   * los 60 FPS de la animación mientras la tarjeta está en el aire.
    */
   moveTaskStatusOptimistic: async (taskId: number, newStatus: TaskStatus) => {
-    const previousTasks = get().tasks;
-    const taskToUpdate = previousTasks.find((t) => t.id === taskId);
+    const currentTasks = get().tasks;
+    const taskToUpdate = currentTasks.find((t) => t.id === taskId);
     if (!taskToUpdate || taskToUpdate.status === newStatus) return;
 
-    const previousStatus = taskToUpdate.status;
+    // Preservar el estado original previo a una ráfaga de movimientos para rollback seguro
+    if (!initialStatusSnapshotMap.has(taskId)) {
+      initialStatusSnapshotMap.set(taskId, taskToUpdate.status);
+    }
 
     // 1. ACTUALIZACIÓN INSTANTÁNEA en memoria (Latencia 0 ms)
     set({
-      tasks: previousTasks.map((t) =>
+      tasks: currentTasks.map((t) =>
         t.id === taskId
           ? { ...t, status: newStatus, updated_at: new Date().toISOString() }
           : t
       ),
     });
 
-    try {
-      // 2. Transacción SQLite asíncrona en segundo plano (Modo WAL)
-      await updateTaskStatusAsync(taskId, newStatus);
-    } catch (err: any) {
-      // 3. Rollback automático en caso de fallo en la base de datos
-      console.error('Fallo en SQLite en segundo plano, revirtiendo estado:', err);
-      set({
-        tasks: previousTasks.map((t) =>
-          t.id === taskId ? { ...t, status: previousStatus } : t
-        ),
-        error: 'No se pudo sincronizar el cambio de estado con SQLite',
-      });
+    // 2. Cancelar cualquier transacción pendiente para la misma tarea (debounce)
+    const existingTimer = statusUpdateDebounceMap.get(taskId);
+    if (existingTimer) {
+      clearTimeout(existingTimer);
     }
+
+    // 3. Diferir la escritura en SQLite hasta que concluya la transición visual en el UI Thread
+    return new Promise<void>((resolve) => {
+      const timer = setTimeout(async () => {
+        statusUpdateDebounceMap.delete(taskId);
+        const rollbackStatus = initialStatusSnapshotMap.get(taskId);
+        initialStatusSnapshotMap.delete(taskId);
+
+        try {
+          await updateTaskStatusAsync(taskId, newStatus);
+          resolve();
+        } catch (err: any) {
+          console.error('Fallo en SQLite diferido, revirtiendo estado:', err);
+          if (rollbackStatus) {
+            set({
+              tasks: get().tasks.map((t) =>
+                t.id === taskId ? { ...t, status: rollbackStatus } : t
+              ),
+              error: 'No se pudo sincronizar el cambio de estado con SQLite',
+            });
+          }
+          resolve();
+        }
+      }, DEBOUNCE_SQLITE_MS);
+
+      statusUpdateDebounceMap.set(taskId, timer);
+    });
   },
 
   createTaskOptimistic: async (folderId, title, description, status, priority) => {
@@ -104,7 +134,6 @@ export const useKanbanStore = create<KanbanStoreState>((set, get) => ({
 
     try {
       const realId = await createTaskAsync(folderId, title, description, status, priority);
-      // Asignar ID generado por SQLite y triggers
       set({
         tasks: get().tasks.map((t) => (t.id === tempId ? { ...t, id: realId } : t)),
       });
@@ -118,8 +147,14 @@ export const useKanbanStore = create<KanbanStoreState>((set, get) => ({
   },
 
   deleteTaskOptimistic: async (taskId: number) => {
+    const existingTimer = statusUpdateDebounceMap.get(taskId);
+    if (existingTimer) {
+      clearTimeout(existingTimer);
+      statusUpdateDebounceMap.delete(taskId);
+      initialStatusSnapshotMap.delete(taskId);
+    }
+
     const previousTasks = get().tasks;
-    // Eliminación inmediata
     set({ tasks: previousTasks.filter((t) => t.id !== taskId) });
 
     try {

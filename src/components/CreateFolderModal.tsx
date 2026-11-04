@@ -5,7 +5,7 @@ import { X, FolderPlus } from 'lucide-react-native';
 interface CreateFolderModalProps {
   visible: boolean;
   onClose: () => void;
-  onSubmit: (name: string, color: string) => void;
+  onSubmit: (name: string, color: string, description?: string) => void;
 }
 
 const COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899'];
@@ -16,12 +16,14 @@ export const CreateFolderModal: React.FC<CreateFolderModalProps> = ({
   onSubmit,
 }) => {
   const [name, setName] = useState('');
+  const [description, setDescription] = useState('');
   const [selectedColor, setSelectedColor] = useState(COLORS[0]);
 
   const handleCreate = () => {
     if (!name.trim()) return;
-    onSubmit(name.trim(), selectedColor);
+    onSubmit(name.trim(), selectedColor, description.trim());
     setName('');
+    setDescription('');
     onClose();
   };
 
@@ -48,7 +50,16 @@ export const CreateFolderModal: React.FC<CreateFolderModalProps> = ({
             value={name}
             onChangeText={setName}
             autoFocus
-            className="border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm text-slate-800 bg-slate-50 mb-4"
+            className="border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm text-slate-800 bg-slate-50 mb-3"
+          />
+
+          <Text className="text-xs font-semibold text-slate-600 mb-1">Contexto o idea (opcional)</Text>
+          <TextInput
+            placeholder="Breve resumen o notas clave (Markdown)..."
+            placeholderTextColor="#94A3B8"
+            value={description}
+            onChangeText={setDescription}
+            className="border border-slate-200 rounded-xl px-3.5 py-2 text-sm text-slate-800 bg-slate-50 mb-4"
           />
 
           <Text className="text-xs font-semibold text-slate-600 mb-2">Color del identificador</Text>

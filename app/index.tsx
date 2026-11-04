@@ -77,9 +77,9 @@ export default function HomeScreen() {
     setRefreshing(false);
   };
 
-  const handleCreateFolder = (name: string, color: string) => {
+  const handleCreateFolder = (name: string, color: string, description = '') => {
     try {
-      createFolder(name, null, color);
+      createFolder(name, null, color, description);
       loadData();
     } catch (e) {
       Alert.alert('Error', 'No se pudo crear la carpeta.');
@@ -89,7 +89,7 @@ export default function HomeScreen() {
   const handleDeleteFolder = (id: number) => {
     Alert.alert(
       'Eliminar Carpeta',
-      '¿Estás seguro de eliminar esta carpeta y todas sus tareas asociadas? El trigger registrará la acción.',
+      '¿Estás seguro de eliminar esta carpeta y todas sus tareas asociadas?',
       [
         { text: 'Cancelar', style: 'cancel' },
         {
@@ -184,7 +184,7 @@ export default function HomeScreen() {
                 </View>
                 <View>
                   <Text className="text-base font-bold text-slate-800">Panel de Bitácora</Text>
-                  <Text className="text-xs text-slate-500">Persistencia SQLite & Triggers</Text>
+                  <Text className="text-xs text-slate-500">Organización de proyectos y tareas</Text>
                 </View>
               </View>
 

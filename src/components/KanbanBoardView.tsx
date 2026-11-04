@@ -1,5 +1,6 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { View, Text, ScrollView, TouchableOpacity } from 'react-native';
+import { FlashList } from '@shopify/flash-list';
 import { Circle, Clock, CheckCircle2, Plus } from 'lucide-react-native';
 import { Task, TaskStatus } from '../db/database';
 import { OptimizedKanbanCard } from './OptimizedKanbanCard';
@@ -51,24 +52,41 @@ export const KanbanBoardView: React.FC<KanbanBoardViewProps> = ({
   onDeleteTask,
   onOpenCreateTask,
 }) => {
+  // Agrupación memoizada por columna para evitar recalcular filtros en cada frame
+  const groupedTasks = useMemo(() => {
+    const map: Record<TaskStatus, Task[]> = {
+      TODO: [],
+      IN_PROGRESS: [],
+      DONE: [],
+    };
+    for (const task of tasks) {
+      if (map[task.status]) {
+        map[task.status].push(task);
+      }
+    }
+    return map;
+  }, [tasks]);
+
   return (
     <ScrollView
       horizontal
       showsHorizontalScrollIndicator={false}
-      contentContainerStyle={{ paddingHorizontal: 12, paddingBottom: 24 }}
+      contentContainerStyle={{ paddingHorizontal: 4, paddingBottom: 24 }}
       className="flex-1"
     >
       {COLUMNS.map((col) => {
-        const columnTasks = tasks.filter((t) => t.status === col.id);
+        const columnTasks = groupedTasks[col.id];
 
         return (
           <View
             key={col.id}
-            className="w-[280px] mr-3 bg-slate-100/90 rounded-3xl p-3 border border-slate-200/80 flex-col"
-            style={{ minHeight: 400 }}
+            className="w-[285px] mr-3 bg-slate-100/90 rounded-3xl p-3 border border-slate-200/80 flex-col"
+            style={{ minHeight: 420, maxHeight: 560 }}
           >
             {/* Cabecera de la Columna Kanban */}
-            <View className={`flex-row items-center justify-between pb-2 mb-2 border-b-2 ${col.headerBorder}`}>
+            <View
+              className={`flex-row items-center justify-between pb-2.5 mb-2.5 border-b-2 ${col.headerBorder}`}
+            >
               <View className="flex-row items-center">
                 {col.icon}
                 <Text className="text-sm font-bold text-slate-800 ml-1.5">{col.title}</Text>
@@ -88,32 +106,33 @@ export const KanbanBoardView: React.FC<KanbanBoardViewProps> = ({
               </TouchableOpacity>
             </View>
 
-            {/* Lista de Tarjetas de la Columna */}
-            <ScrollView
-              showsVerticalScrollIndicator={false}
-              contentContainerStyle={{ paddingBottom: 16 }}
-              className="flex-1"
-            >
-              {columnTasks.length === 0 ? (
-                <View className="py-12 items-center justify-center border-2 border-dashed border-slate-200 rounded-2xl bg-white/50 px-3">
-                  <Text className="text-xs text-slate-400 font-medium text-center">
-                    Columna vacía
-                  </Text>
-                  <Text className="text-[10px] text-slate-400 text-center mt-1">
-                    Arrastra una tarjeta aquí o presiona (+) para agregar.
-                  </Text>
-                </View>
-              ) : (
-                columnTasks.map((task) => (
+            {/* Virtualización de Columna Kanban mediante Shopify FlashList */}
+            <View className="flex-1" style={{ minHeight: 340 }}>
+              <FlashList
+                data={columnTasks}
+                keyExtractor={(item) => item.id.toString()}
+                showsVerticalScrollIndicator={false}
+                nestedScrollEnabled
+                contentContainerStyle={{ paddingBottom: 16 }}
+                renderItem={({ item }) => (
                   <OptimizedKanbanCard
-                    key={task.id}
-                    task={task}
+                    task={item}
                     onMoveStatus={onMoveStatus}
                     onDelete={onDeleteTask}
                   />
-                ))
-              )}
-            </ScrollView>
+                )}
+                ListEmptyComponent={
+                  <View className="py-12 items-center justify-center border-2 border-dashed border-slate-200 rounded-2xl bg-white/50 px-3 mt-2">
+                    <Text className="text-xs text-slate-400 font-medium text-center">
+                      Sin tareas
+                    </Text>
+                    <Text className="text-[11px] text-slate-400 text-center mt-1">
+                      Presiona (+) para añadir o desliza una tarea aquí.
+                    </Text>
+                  </View>
+                }
+              />
+            </View>
           </View>
         );
       })}

@@ -15,6 +15,7 @@ export function generateUUID(): string {
 export interface Folder {
   id: number;
   name: string;
+  description?: string;
   parent_id: number | null;
   color?: string;
   icon?: string;
@@ -22,6 +23,7 @@ export interface Folder {
   updated_at?: string;
   task_count?: number;
   subfolder_count?: number;
+  depth?: number;
 }
 
 export type TaskStatus = 'TODO' | 'IN_PROGRESS' | 'DONE';
@@ -43,7 +45,9 @@ export interface AuditLog {
   id: number;
   entity_type: 'FOLDER' | 'TASK';
   entity_id: number;
-  action: 'CREATE' | 'UPDATE' | 'STATUS_CHANGE' | 'DELETE';
+  folder_id?: number | null;
+  task_id?: number | null;
+  action: 'CREATE' | 'UPDATE' | 'STATUS_CHANGE' | 'PRIORITY_CHANGE' | 'STATUS_TRIGGER' | 'PRIORITY_TRIGGER' | 'DELETE';
   old_value: string | null;
   new_value: string | null;
   timestamp: string;
@@ -77,8 +81,8 @@ export const db = SQLite.openDatabaseSync('bitacora.db');
 
 /**
  * Función de migración inicial:
- * Crea las tablas de Proyectos (Folders, Tasks, Audit_Logs) con sus triggers
- * y las tablas independientes de Notas (Note_Categories, Notes) sin colisiones.
+ * Crea las tablas de Proyectos (Folders, Tasks, Audit_Logs) con sus triggers,
+ * índices B-Tree de rendimiento y las tablas independientes de Notas.
  */
 export function initDatabase(): void {
   // Activar claves foráneas y modo WAL (Write-Ahead Logging) para concurrencia y máxima velocidad
@@ -90,6 +94,7 @@ export function initDatabase(): void {
     CREATE TABLE IF NOT EXISTS Folders (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL,
+      description TEXT DEFAULT '',
       parent_id INTEGER DEFAULT NULL,
       color TEXT DEFAULT '#3B82F6',
       icon TEXT DEFAULT 'folder',
@@ -115,6 +120,8 @@ export function initDatabase(): void {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       entity_type TEXT NOT NULL,
       entity_id INTEGER NOT NULL,
+      folder_id INTEGER DEFAULT NULL,
+      task_id INTEGER DEFAULT NULL,
       action TEXT NOT NULL,
       old_value TEXT DEFAULT NULL,
       new_value TEXT DEFAULT NULL,
@@ -122,31 +129,80 @@ export function initDatabase(): void {
     );
   `);
 
-  // Triggers de Auditoría para Tasks
+  // Asegurar que las columnas task_id y folder_id existan en Audit_Logs
+  const auditColumns = db.getAllSync<{ name: string }>('PRAGMA table_info(Audit_Logs);');
+  const hasTaskIdColumn = auditColumns.some((col) => col.name === 'task_id');
+  if (!hasTaskIdColumn) {
+    db.execSync('ALTER TABLE Audit_Logs ADD COLUMN task_id INTEGER DEFAULT NULL;');
+  }
+
+  const hasFolderIdColumn = auditColumns.some((col) => col.name === 'folder_id');
+  if (!hasFolderIdColumn) {
+    db.execSync('ALTER TABLE Audit_Logs ADD COLUMN folder_id INTEGER DEFAULT NULL;');
+    try {
+      db.execSync(`
+        UPDATE Audit_Logs 
+        SET folder_id = (SELECT folder_id FROM Tasks WHERE Tasks.id = Audit_Logs.entity_id)
+        WHERE entity_type = 'TASK' AND folder_id IS NULL;
+
+        UPDATE Audit_Logs 
+        SET folder_id = entity_id
+        WHERE entity_type = 'FOLDER' AND folder_id IS NULL;
+      `);
+    } catch (e) {
+      // Ignorar si aún no hay tablas de datos
+    }
+  }
+
+  // Asegurar que la columna description exista en Folders para almacenar contexto Markdown
+  const folderColumns = db.getAllSync<{ name: string }>('PRAGMA table_info(Folders);');
+  const hasDescriptionColumn = folderColumns.some((col) => col.name === 'description');
+  if (!hasDescriptionColumn) {
+    db.execSync("ALTER TABLE Folders ADD COLUMN description TEXT DEFAULT '';");
+  }
+
+  // Índices B-Tree para búsquedas eficientes por proyecto, fecha y jerarquías
   db.execSync(`
-    CREATE TRIGGER IF NOT EXISTS trg_tasks_insert
+    CREATE INDEX IF NOT EXISTS idx_audit_folder_timestamp ON Audit_Logs (folder_id, timestamp DESC);
+    CREATE INDEX IF NOT EXISTS idx_audit_logs_task_id ON Audit_Logs(task_id);
+    CREATE INDEX IF NOT EXISTS idx_audit_logs_timestamp ON Audit_Logs(timestamp DESC);
+    CREATE INDEX IF NOT EXISTS idx_audit_logs_entity ON Audit_Logs(entity_type, entity_id);
+    CREATE INDEX IF NOT EXISTS idx_tasks_folder_id ON Tasks(folder_id);
+    CREATE INDEX IF NOT EXISTS idx_folders_parent_id ON Folders(parent_id);
+  `);
+
+  // Triggers de Auditoría para Tasks (con soporte de folder_id y task_id indexados)
+  db.execSync(`
+    DROP TRIGGER IF EXISTS trg_tasks_insert;
+    CREATE TRIGGER trg_tasks_insert
     AFTER INSERT ON Tasks
     BEGIN
-      INSERT INTO Audit_Logs (entity_type, entity_id, action, old_value, new_value, timestamp)
+      INSERT INTO Audit_Logs (entity_type, entity_id, folder_id, task_id, action, old_value, new_value, timestamp)
       VALUES (
         'TASK',
         NEW.id,
+        NEW.folder_id,
+        NEW.id,
         'CREATE',
         NULL,
-        json_object('title', NEW.title, 'status', NEW.status, 'folder_id', NEW.folder_id),
+        json_object('title', NEW.title, 'status', NEW.status, 'priority', NEW.priority, 'folder_id', NEW.folder_id),
         datetime('now', 'localtime')
       );
     END;
 
-    CREATE TRIGGER IF NOT EXISTS trg_tasks_update
+    DROP TRIGGER IF EXISTS trg_tasks_update;
+    CREATE TRIGGER trg_tasks_update
     AFTER UPDATE ON Tasks
     BEGIN
-      INSERT INTO Audit_Logs (entity_type, entity_id, action, old_value, new_value, timestamp)
+      INSERT INTO Audit_Logs (entity_type, entity_id, folder_id, task_id, action, old_value, new_value, timestamp)
       VALUES (
         'TASK',
         NEW.id,
+        NEW.folder_id,
+        NEW.id,
         CASE 
           WHEN OLD.status <> NEW.status THEN 'STATUS_CHANGE'
+          WHEN OLD.priority <> NEW.priority THEN 'PRIORITY_CHANGE'
           ELSE 'UPDATE'
         END,
         json_object('title', OLD.title, 'status', OLD.status, 'priority', OLD.priority),
@@ -155,15 +211,18 @@ export function initDatabase(): void {
       );
     END;
 
-    CREATE TRIGGER IF NOT EXISTS trg_tasks_delete
+    DROP TRIGGER IF EXISTS trg_tasks_delete;
+    CREATE TRIGGER trg_tasks_delete
     AFTER DELETE ON Tasks
     BEGIN
-      INSERT INTO Audit_Logs (entity_type, entity_id, action, old_value, new_value, timestamp)
+      INSERT INTO Audit_Logs (entity_type, entity_id, folder_id, task_id, action, old_value, new_value, timestamp)
       VALUES (
         'TASK',
         OLD.id,
+        OLD.folder_id,
+        OLD.id,
         'DELETE',
-        json_object('title', OLD.title, 'status', OLD.status, 'folder_id', OLD.folder_id),
+        json_object('title', OLD.title, 'status', OLD.status, 'priority', OLD.priority, 'folder_id', OLD.folder_id),
         NULL,
         datetime('now', 'localtime')
       );
@@ -172,13 +231,16 @@ export function initDatabase(): void {
 
   // Triggers de Auditoría para Folders
   db.execSync(`
-    CREATE TRIGGER IF NOT EXISTS trg_folders_insert
+    DROP TRIGGER IF EXISTS trg_folders_insert;
+    CREATE TRIGGER trg_folders_insert
     AFTER INSERT ON Folders
     BEGIN
-      INSERT INTO Audit_Logs (entity_type, entity_id, action, old_value, new_value, timestamp)
+      INSERT INTO Audit_Logs (entity_type, entity_id, folder_id, task_id, action, old_value, new_value, timestamp)
       VALUES (
         'FOLDER',
         NEW.id,
+        NEW.id,
+        NULL,
         'CREATE',
         NULL,
         json_object('name', NEW.name, 'parent_id', NEW.parent_id),
@@ -186,27 +248,33 @@ export function initDatabase(): void {
       );
     END;
 
-    CREATE TRIGGER IF NOT EXISTS trg_folders_update
+    DROP TRIGGER IF EXISTS trg_folders_update;
+    CREATE TRIGGER trg_folders_update
     AFTER UPDATE ON Folders
     BEGIN
-      INSERT INTO Audit_Logs (entity_type, entity_id, action, old_value, new_value, timestamp)
+      INSERT INTO Audit_Logs (entity_type, entity_id, folder_id, task_id, action, old_value, new_value, timestamp)
       VALUES (
         'FOLDER',
         NEW.id,
+        NEW.id,
+        NULL,
         'UPDATE',
-        json_object('name', OLD.name),
-        json_object('name', NEW.name),
+        json_object('name', OLD.name, 'description', OLD.description),
+        json_object('name', NEW.name, 'description', NEW.description),
         datetime('now', 'localtime')
       );
     END;
 
-    CREATE TRIGGER IF NOT EXISTS trg_folders_delete
+    DROP TRIGGER IF EXISTS trg_folders_delete;
+    CREATE TRIGGER trg_folders_delete
     AFTER DELETE ON Folders
     BEGIN
-      INSERT INTO Audit_Logs (entity_type, entity_id, action, old_value, new_value, timestamp)
+      INSERT INTO Audit_Logs (entity_type, entity_id, folder_id, task_id, action, old_value, new_value, timestamp)
       VALUES (
         'FOLDER',
         OLD.id,
+        OLD.id,
+        NULL,
         'DELETE',
         json_object('name', OLD.name),
         NULL,
@@ -246,16 +314,21 @@ function seedProjectDataIfEmpty(): void {
   const countRow = db.getFirstSync<{ count: number }>('SELECT COUNT(*) as count FROM Folders;');
   if (!countRow || countRow.count === 0) {
     db.runSync(
-      `INSERT INTO Folders (name, color, icon) VALUES (?, ?, ?);`,
-      ['Proyecto Principal', '#3B82F6', 'folder-kanban']
+      `INSERT INTO Folders (name, color, icon, description) VALUES (?, ?, ?, ?);`,
+      [
+        'Proyecto Principal',
+        '#3B82F6',
+        'folder-kanban',
+        '# Visión del Proyecto\nEste espacio centraliza las tareas, hitos y notas clave de la bitácora.\n\n- **Objetivo**: Optimizar la productividad y organización.\n- **Metodología**: Tablero Kanban interactivo con persistencia local SQLite.',
+      ]
     );
     db.runSync(
-      `INSERT INTO Folders (name, color, icon) VALUES (?, ?, ?);`,
-      ['Documentación & Notas', '#10B981', 'book-open']
+      `INSERT INTO Folders (name, color, icon, description) VALUES (?, ?, ?, ?);`,
+      ['Documentación & Notas', '#10B981', 'book-open', 'Documentación técnica del sistema, guías y especificaciones de arquitectura.']
     );
     db.runSync(
-      `INSERT INTO Folders (name, color, icon) VALUES (?, ?, ?);`,
-      ['Diseño UI/UX', '#8B5CF6', 'palette']
+      `INSERT INTO Folders (name, color, icon, description) VALUES (?, ?, ?, ?);`,
+      ['Diseño UI/UX', '#8B5CF6', 'palette', 'Bocetos, patrones de componentes y guías de estilos para la aplicación.']
     );
 
     // Tareas iniciales para la carpeta 1
@@ -271,13 +344,27 @@ function seedProjectDataIfEmpty(): void {
       `INSERT INTO Tasks (folder_id, title, description, status, priority) VALUES (?, ?, ?, ?, ?);`,
       [1, 'Pruebas de navegación con Expo Router', 'Validar rutas dinámicas en app/folder/[id]', 'TODO', 'MEDIUM']
     );
+  } else {
+    // Si la carpeta 1 ya existía sin descripción previa a la migración
+    try {
+      const rootFolder = db.getFirstSync<{ description: string | null }>('SELECT description FROM Folders WHERE id = 1;');
+      if (rootFolder && (!rootFolder.description || rootFolder.description.trim() === '')) {
+        db.runSync(
+          "UPDATE Folders SET description = ? WHERE id = 1;",
+          [
+            '# Visión del Proyecto\nEste espacio centraliza las tareas, hitos y notas clave de la bitácora.\n\n- **Objetivo**: Optimizar la productividad y organización.\n- **Metodología**: Tablero Kanban interactivo con persistencia local SQLite.',
+          ]
+        );
+      }
+    } catch (e) {
+      // Ignorar si aún no existe
+    }
   }
 }
 
 function seedNoteDataIfEmpty(): void {
   const countRow = db.getFirstSync<{ count: number }>('SELECT COUNT(*) as count FROM Note_Categories;');
   if (!countRow || countRow.count === 0) {
-    // Categorías principales (parent_id IS NULL)
     const seriesId = generateUUID();
     const personalId = generateUUID();
     const ideasId = generateUUID();
@@ -286,14 +373,12 @@ function seedNoteDataIfEmpty(): void {
     db.runSync(`INSERT INTO Note_Categories (id, parent_id, name) VALUES (?, NULL, ?);`, [personalId, 'Personal']);
     db.runSync(`INSERT INTO Note_Categories (id, parent_id, name) VALUES (?, NULL, ?);`, [ideasId, 'Ideas']);
 
-    // Subcategorías (Nivel 2) de "Series"
     const seriesAnimadasId = generateUUID();
     const seriesNormalesId = generateUUID();
 
     db.runSync(`INSERT INTO Note_Categories (id, parent_id, name) VALUES (?, ?, ?);`, [seriesAnimadasId, seriesId, 'Series Animadas']);
     db.runSync(`INSERT INTO Note_Categories (id, parent_id, name) VALUES (?, ?, ?);`, [seriesNormalesId, seriesId, 'Series Normales']);
 
-    // Notas de muestra demostrando la prioridad de is_pinned DESC
     db.runSync(
       `INSERT INTO Notes (id, category_id, title, content, is_pinned) VALUES (?, ?, ?, ?, ?);`,
       [
@@ -301,7 +386,7 @@ function seedNoteDataIfEmpty(): void {
         seriesAnimadasId,
         '⭐ Series Animadas Pendientes',
         '• Arcane: Temporada 2\n• Invincible\n• Cyberpunk: Edgerunners\n• Castlevania: Nocturne',
-        1, // Fijada
+        1,
       ]
     );
 
@@ -312,7 +397,7 @@ function seedNoteDataIfEmpty(): void {
         seriesNormalesId,
         'Series Live Action Recomendadas',
         '• Severance (Temporada 2)\n• Shōgun\n• The Bear',
-        0, // No fijada
+        0,
       ]
     );
 
@@ -323,7 +408,7 @@ function seedNoteDataIfEmpty(): void {
         personalId,
         '⭐ Recordatorios Personales',
         '• Revisar entrega de proyecto de Bitácora\n• Comprar insumos de trabajo\n• Programar copia de seguridad',
-        1, // Fijada
+        1,
       ]
     );
 
@@ -334,35 +419,65 @@ function seedNoteDataIfEmpty(): void {
         ideasId,
         'Ideas de Diseño UI',
         'Cuadrícula asimétrica Masonry para notas, pestañas tipo píldora horizontales y selector de subcategorías dinámico.',
-        0, // No fijada
+        0,
       ]
     );
   }
 }
 
 // -----------------------------------------------------------------------------
-// Operaciones de Proyectos / Folders & Tasks
+// Operaciones de Proyectos / Folders & Tasks con CTEs Recursivas
 // -----------------------------------------------------------------------------
+
+const RECURSIVE_FOLDER_CTE = `
+  WITH RECURSIVE
+  FolderDepth AS (
+    SELECT id, parent_id, 0 AS depth
+    FROM Folders
+    WHERE parent_id IS NULL
+    UNION ALL
+    SELECT f.id, f.parent_id, fd.depth + 1
+    FROM Folders f
+    INNER JOIN FolderDepth fd ON f.parent_id = fd.id
+  ),
+  FolderHierarchy AS (
+    SELECT id AS root_id, id AS descendant_id, 0 AS rel_depth
+    FROM Folders
+    UNION ALL
+    SELECT fh.root_id, f.id AS descendant_id, fh.rel_depth + 1
+    FROM Folders f
+    INNER JOIN FolderHierarchy fh ON f.parent_id = fh.descendant_id
+  )
+`;
+
+/**
+ * Obtiene carpetas utilizando Common Table Expressions (CTEs) recursivas
+ * para calcular en una sola transacción SQLite la profundidad (depth),
+ * el conteo total de tareas anidadas y el total de subcarpetas descendientes.
+ */
 export function getFolders(parentId: number | null = null): Folder[] {
-  const query = parentId === null
-    ? `
-      SELECT 
-        f.*,
-        (SELECT COUNT(*) FROM Tasks t WHERE t.folder_id = f.id) AS task_count,
-        (SELECT COUNT(*) FROM Folders sub WHERE sub.parent_id = f.id) AS subfolder_count
-      FROM Folders f
-      WHERE f.parent_id IS NULL
-      ORDER BY f.id DESC;
-    `
-    : `
-      SELECT 
-        f.*,
-        (SELECT COUNT(*) FROM Tasks t WHERE t.folder_id = f.id) AS task_count,
-        (SELECT COUNT(*) FROM Folders sub WHERE sub.parent_id = f.id) AS subfolder_count
-      FROM Folders f
-      WHERE f.parent_id = ?
-      ORDER BY f.id DESC;
-    `;
+  const whereClause = parentId === null ? 'WHERE f.parent_id IS NULL' : 'WHERE f.parent_id = ?';
+  const query = `
+    ${RECURSIVE_FOLDER_CTE}
+    SELECT 
+      f.*,
+      COALESCE(fd.depth, 0) AS depth,
+      (
+        SELECT COUNT(*)
+        FROM Tasks t
+        INNER JOIN FolderHierarchy fh ON t.folder_id = fh.descendant_id
+        WHERE fh.root_id = f.id
+      ) AS task_count,
+      (
+        SELECT COUNT(*)
+        FROM FolderHierarchy fh
+        WHERE fh.root_id = f.id AND fh.rel_depth > 0
+      ) AS subfolder_count
+    FROM Folders f
+    LEFT JOIN FolderDepth fd ON fd.id = f.id
+    ${whereClause}
+    ORDER BY f.id DESC;
+  `;
 
   return parentId === null
     ? db.getAllSync<Folder>(query)
@@ -370,22 +485,54 @@ export function getFolders(parentId: number | null = null): Folder[] {
 }
 
 export function getFolderById(id: number): Folder | null {
-  return db.getFirstSync<Folder>(`
+  const query = `
+    ${RECURSIVE_FOLDER_CTE}
     SELECT 
       f.*,
-      (SELECT COUNT(*) FROM Tasks t WHERE t.folder_id = f.id) AS task_count,
-      (SELECT COUNT(*) FROM Folders sub WHERE sub.parent_id = f.id) AS subfolder_count
+      COALESCE(fd.depth, 0) AS depth,
+      (
+        SELECT COUNT(*)
+        FROM Tasks t
+        INNER JOIN FolderHierarchy fh ON t.folder_id = fh.descendant_id
+        WHERE fh.root_id = f.id
+      ) AS task_count,
+      (
+        SELECT COUNT(*)
+        FROM FolderHierarchy fh
+        WHERE fh.root_id = f.id AND fh.rel_depth > 0
+      ) AS subfolder_count
     FROM Folders f
+    LEFT JOIN FolderDepth fd ON fd.id = f.id
     WHERE f.id = ?;
-  `, [id]);
+  `;
+  return db.getFirstSync<Folder>(query, [id]);
 }
 
-export function createFolder(name: string, parentId: number | null = null, color = '#3B82F6'): number {
+export function createFolder(
+  name: string,
+  parentId: number | null = null,
+  color = '#3B82F6',
+  description = ''
+): number {
   const result = db.runSync(
-    'INSERT INTO Folders (name, parent_id, color) VALUES (?, ?, ?);',
-    [name, parentId, color]
+    'INSERT INTO Folders (name, parent_id, color, description) VALUES (?, ?, ?, ?);',
+    [name, parentId, color, description]
   );
   return result.lastInsertRowId;
+}
+
+export function updateFolderDescription(id: number, description: string): void {
+  db.runSync(
+    "UPDATE Folders SET description = ?, updated_at = datetime('now', 'localtime') WHERE id = ?;",
+    [description, id]
+  );
+}
+
+export async function updateFolderDescriptionAsync(id: number, description: string): Promise<void> {
+  await db.runAsync(
+    "UPDATE Folders SET description = ?, updated_at = datetime('now', 'localtime') WHERE id = ?;",
+    [description, id]
+  );
 }
 
 export function deleteFolder(id: number): void {
@@ -450,10 +597,40 @@ export function deleteTask(id: number): void {
   db.runSync('DELETE FROM Tasks WHERE id = ?;', [id]);
 }
 
-export function getAuditLogs(limit = 50): AuditLog[] {
+export function getAuditLogs(limit = 50, taskId?: number): AuditLog[] {
+  if (taskId !== undefined) {
+    return db.getAllSync<AuditLog>(
+      'SELECT * FROM Audit_Logs WHERE task_id = ? ORDER BY timestamp DESC, id DESC LIMIT ?;',
+      [taskId, limit]
+    );
+  }
   return db.getAllSync<AuditLog>(
-    'SELECT * FROM Audit_Logs ORDER BY id DESC LIMIT ?;',
+    'SELECT * FROM Audit_Logs ORDER BY timestamp DESC, id DESC LIMIT ?;',
     [limit]
+  );
+}
+
+/**
+ * Consulta de extracción con paginación (LIMIT/OFFSET) utilizando
+ * el índice compuesto idx_audit_folder_timestamp para optimizar la velocidad de lectura.
+ */
+export function getProjectAuditLogs(folderId: number, limit = 20, offset = 0): AuditLog[] {
+  return db.getAllSync<AuditLog>(
+    `SELECT * FROM Audit_Logs 
+     WHERE folder_id = ? 
+     ORDER BY timestamp DESC, id DESC 
+     LIMIT ? OFFSET ?;`,
+    [folderId, limit, offset]
+  );
+}
+
+export async function getProjectAuditLogsAsync(folderId: number, limit = 20, offset = 0): Promise<AuditLog[]> {
+  return await db.getAllAsync<AuditLog>(
+    `SELECT * FROM Audit_Logs 
+     WHERE folder_id = ? 
+     ORDER BY timestamp DESC, id DESC 
+     LIMIT ? OFFSET ?;`,
+    [folderId, limit, offset]
   );
 }
 

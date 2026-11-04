@@ -13,6 +13,7 @@ export function generateUUID(): string {
 export interface Folder {
   id: number;
   name: string;
+  description?: string;
   parent_id: number | null;
   color?: string;
   icon?: string;
@@ -20,6 +21,7 @@ export interface Folder {
   updated_at?: string;
   task_count?: number;
   subfolder_count?: number;
+  depth?: number;
 }
 
 export type TaskStatus = 'TODO' | 'IN_PROGRESS' | 'DONE';
@@ -41,7 +43,9 @@ export interface AuditLog {
   id: number;
   entity_type: 'FOLDER' | 'TASK';
   entity_id: number;
-  action: 'CREATE' | 'UPDATE' | 'STATUS_CHANGE' | 'DELETE';
+  folder_id?: number | null;
+  task_id?: number | null;
+  action: 'CREATE' | 'UPDATE' | 'STATUS_CHANGE' | 'PRIORITY_CHANGE' | 'STATUS_TRIGGER' | 'PRIORITY_TRIGGER' | 'DELETE';
   old_value: string | null;
   new_value: string | null;
   timestamp: string;
@@ -98,9 +102,36 @@ export function initDatabase(): void {
 
   // Semilla de Proyectos
   inMemoryFolders = [
-    { id: 1, name: 'Proyecto Principal', parent_id: null, color: '#3B82F6', icon: 'folder-kanban', created_at: getNow(), updated_at: getNow() },
-    { id: 2, name: 'Documentación & Notas', parent_id: null, color: '#10B981', icon: 'book-open', created_at: getNow(), updated_at: getNow() },
-    { id: 3, name: 'Diseño UI/UX', parent_id: null, color: '#8B5CF6', icon: 'palette', created_at: getNow(), updated_at: getNow() },
+    {
+      id: 1,
+      name: 'Proyecto Principal',
+      description: '# Visión del Proyecto\nEste espacio centraliza las tareas, hitos y notas clave de la bitácora.\n\n- **Objetivo**: Optimizar la productividad y organización.\n- **Metodología**: Tablero Kanban interactivo con persistencia local SQLite.',
+      parent_id: null,
+      color: '#3B82F6',
+      icon: 'folder-kanban',
+      created_at: getNow(),
+      updated_at: getNow(),
+    },
+    {
+      id: 2,
+      name: 'Documentación & Notas',
+      description: 'Documentación técnica del sistema, guías y especificaciones de arquitectura.',
+      parent_id: null,
+      color: '#10B981',
+      icon: 'book-open',
+      created_at: getNow(),
+      updated_at: getNow(),
+    },
+    {
+      id: 3,
+      name: 'Diseño UI/UX',
+      description: 'Bocetos, patrones de componentes y guías de estilos para la aplicación.',
+      parent_id: null,
+      color: '#8B5CF6',
+      icon: 'palette',
+      created_at: getNow(),
+      updated_at: getNow(),
+    },
   ];
 
   inMemoryTasks = [
@@ -170,17 +201,51 @@ export function initDatabase(): void {
 }
 
 // -----------------------------------------------------------------------------
+// Funciones auxiliares para emular la CTE Recursiva en Web
+// -----------------------------------------------------------------------------
+function getDescendantFolderIds(rootId: number): number[] {
+  const descendants: number[] = [];
+  const stack = [rootId];
+  while (stack.length > 0) {
+    const currentId = stack.pop()!;
+    const children = inMemoryFolders.filter((f) => f.parent_id === currentId);
+    for (const child of children) {
+      descendants.push(child.id);
+      stack.push(child.id);
+    }
+  }
+  return descendants;
+}
+
+function getFolderDepth(folderId: number): number {
+  let depth = 0;
+  let current = inMemoryFolders.find((f) => f.id === folderId);
+  while (current && current.parent_id !== null) {
+    depth += 1;
+    current = inMemoryFolders.find((f) => f.id === current!.parent_id);
+  }
+  return depth;
+}
+
+function enrichFolderWithRecursiveMetrics(f: Folder): Folder {
+  const descendantIds = getDescendantFolderIds(f.id);
+  const allHierarchyIds = [f.id, ...descendantIds];
+  return {
+    ...f,
+    depth: getFolderDepth(f.id),
+    task_count: inMemoryTasks.filter((t) => allHierarchyIds.includes(t.folder_id)).length,
+    subfolder_count: descendantIds.length,
+  };
+}
+
+// -----------------------------------------------------------------------------
 // Operaciones de Proyectos / Folders & Tasks
 // -----------------------------------------------------------------------------
 export function getFolders(parentId: number | null = null): Folder[] {
   initDatabase();
   return inMemoryFolders
     .filter((f) => f.parent_id === parentId)
-    .map((f) => ({
-      ...f,
-      task_count: inMemoryTasks.filter((t) => t.folder_id === f.id).length,
-      subfolder_count: inMemoryFolders.filter((sub) => sub.parent_id === f.id).length,
-    }))
+    .map(enrichFolderWithRecursiveMetrics)
     .reverse();
 }
 
@@ -188,19 +253,21 @@ export function getFolderById(id: number): Folder | null {
   initDatabase();
   const f = inMemoryFolders.find((item) => item.id === id);
   if (!f) return null;
-  return {
-    ...f,
-    task_count: inMemoryTasks.filter((t) => t.folder_id === f.id).length,
-    subfolder_count: inMemoryFolders.filter((sub) => sub.parent_id === f.id).length,
-  };
+  return enrichFolderWithRecursiveMetrics(f);
 }
 
-export function createFolder(name: string, parentId: number | null = null, color = '#3B82F6'): number {
+export function createFolder(
+  name: string,
+  parentId: number | null = null,
+  color = '#3B82F6',
+  description = ''
+): number {
   initDatabase();
   const id = inMemoryFolders.length > 0 ? Math.max(...inMemoryFolders.map((f) => f.id)) + 1 : 1;
   const newFolder: Folder = {
     id,
     name,
+    description,
     parent_id: parentId,
     color,
     icon: 'folder',
@@ -212,12 +279,39 @@ export function createFolder(name: string, parentId: number | null = null, color
     id: inMemoryAuditLogs.length + 1,
     entity_type: 'FOLDER',
     entity_id: id,
+    folder_id: id,
+    task_id: null,
     action: 'CREATE',
     old_value: null,
-    new_value: JSON.stringify({ name }),
+    new_value: JSON.stringify({ name, parent_id: parentId, description }),
     timestamp: getNow(),
   });
   return id;
+}
+
+export function updateFolderDescription(id: number, description: string): void {
+  initDatabase();
+  const folder = inMemoryFolders.find((f) => f.id === id);
+  if (folder) {
+    const oldDesc = folder.description || '';
+    folder.description = description;
+    folder.updated_at = getNow();
+    inMemoryAuditLogs.unshift({
+      id: inMemoryAuditLogs.length + 1,
+      entity_type: 'FOLDER',
+      entity_id: id,
+      folder_id: id,
+      task_id: null,
+      action: 'UPDATE',
+      old_value: JSON.stringify({ name: folder.name, description: oldDesc }),
+      new_value: JSON.stringify({ name: folder.name, description }),
+      timestamp: getNow(),
+    });
+  }
+}
+
+export async function updateFolderDescriptionAsync(id: number, description: string): Promise<void> {
+  updateFolderDescription(id, description);
 }
 
 export function deleteFolder(id: number): void {
@@ -228,14 +322,17 @@ export function deleteFolder(id: number): void {
       id: inMemoryAuditLogs.length + 1,
       entity_type: 'FOLDER',
       entity_id: id,
+      folder_id: id,
+      task_id: null,
       action: 'DELETE',
       old_value: JSON.stringify({ name: existing.name }),
       new_value: null,
       timestamp: getNow(),
     });
   }
-  inMemoryFolders = inMemoryFolders.filter((f) => f.id !== id && f.parent_id !== id);
-  inMemoryTasks = inMemoryTasks.filter((t) => t.folder_id !== id);
+  const toRemove = new Set([id, ...getDescendantFolderIds(id)]);
+  inMemoryFolders = inMemoryFolders.filter((f) => !toRemove.has(f.id));
+  inMemoryTasks = inMemoryTasks.filter((t) => !toRemove.has(t.folder_id));
 }
 
 export function getTasks(folderId: number): Task[] {
@@ -268,9 +365,11 @@ export function createTask(
     id: inMemoryAuditLogs.length + 1,
     entity_type: 'TASK',
     entity_id: id,
+    folder_id: folderId,
+    task_id: id,
     action: 'CREATE',
     old_value: null,
-    new_value: JSON.stringify({ title, status, folder_id: folderId }),
+    new_value: JSON.stringify({ title, status, priority, folder_id: folderId }),
     timestamp: getNow(),
   });
   return id;
@@ -287,9 +386,11 @@ export function updateTaskStatus(id: number, status: TaskStatus): void {
       id: inMemoryAuditLogs.length + 1,
       entity_type: 'TASK',
       entity_id: id,
+      folder_id: task.folder_id,
+      task_id: id,
       action: oldStatus !== status ? 'STATUS_CHANGE' : 'UPDATE',
-      old_value: JSON.stringify({ title: task.title, status: oldStatus }),
-      new_value: JSON.stringify({ title: task.title, status }),
+      old_value: JSON.stringify({ title: task.title, status: oldStatus, priority: task.priority }),
+      new_value: JSON.stringify({ title: task.title, status, priority: task.priority }),
       timestamp: getNow(),
     });
   }
@@ -321,8 +422,10 @@ export function deleteTask(id: number): void {
       id: inMemoryAuditLogs.length + 1,
       entity_type: 'TASK',
       entity_id: id,
+      folder_id: task.folder_id,
+      task_id: id,
       action: 'DELETE',
-      old_value: JSON.stringify({ title: task.title, status: task.status }),
+      old_value: JSON.stringify({ title: task.title, status: task.status, priority: task.priority }),
       new_value: null,
       timestamp: getNow(),
     });
@@ -330,9 +433,24 @@ export function deleteTask(id: number): void {
   inMemoryTasks = inMemoryTasks.filter((t) => t.id !== id);
 }
 
-export function getAuditLogs(limit = 50): AuditLog[] {
+export function getAuditLogs(limit = 50, taskId?: number): AuditLog[] {
   initDatabase();
-  return inMemoryAuditLogs.slice(0, limit);
+  const logs =
+    taskId !== undefined
+      ? inMemoryAuditLogs.filter((l) => l.task_id === taskId)
+      : inMemoryAuditLogs;
+  return logs.slice(0, limit);
+}
+
+export function getProjectAuditLogs(folderId: number, limit = 20, offset = 0): AuditLog[] {
+  initDatabase();
+  return inMemoryAuditLogs
+    .filter((l) => l.folder_id === folderId)
+    .slice(offset, offset + limit);
+}
+
+export async function getProjectAuditLogsAsync(folderId: number, limit = 20, offset = 0): Promise<AuditLog[]> {
+  return getProjectAuditLogs(folderId, limit, offset);
 }
 
 // -----------------------------------------------------------------------------
@@ -406,7 +524,6 @@ export function getNotes(categoryId?: string | null, isMainCategoryWithSubs = fa
     }
   }
 
-  // Ordenamiento SQL estricto: ORDER BY is_pinned DESC, updated_at DESC
   return filtered.sort((a, b) => {
     if (b.is_pinned !== a.is_pinned) {
       return b.is_pinned - a.is_pinned;

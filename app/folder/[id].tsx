@@ -18,7 +18,6 @@ import {
   Layers,
   Kanban as KanbanIcon,
   LayoutList,
-  Zap,
 } from 'lucide-react-native';
 import {
   getFolderById,
@@ -35,6 +34,9 @@ import { OptimizedKanbanCard } from '../../src/components/OptimizedKanbanCard';
 import { KanbanBoardView } from '../../src/components/KanbanBoardView';
 import { CreateFolderModal } from '../../src/components/CreateFolderModal';
 import { CreateTaskModal } from '../../src/components/CreateTaskModal';
+import { DebugTelemetry } from '../../src/components/DebugTelemetry';
+import { ProjectContextSection } from '../../src/components/ProjectContextSection';
+import { ProjectHistorySection } from '../../src/components/ProjectHistorySection';
 
 type FilterTab = 'ALL' | 'TODO' | 'IN_PROGRESS' | 'DONE';
 type ViewMode = 'KANBAN' | 'LIST';
@@ -49,12 +51,12 @@ export default function FolderDetailScreen() {
   const [activeTab, setActiveTab] = useState<FilterTab>('ALL');
   const [viewMode, setViewMode] = useState<ViewMode>('KANBAN');
   const [refreshing, setRefreshing] = useState(false);
+  const [secretDevMenuUnlocked, setSecretDevMenuUnlocked] = useState(false);
 
   const [isFolderModalOpen, setIsFolderModalOpen] = useState(false);
   const [isTaskModalOpen, setIsTaskModalOpen] = useState(false);
   const [initialTaskStatus, setInitialTaskStatus] = useState<TaskStatus>('TODO');
 
-  // Zustand Store con Optimistic UI
   const {
     tasks,
     loadTasksForFolder,
@@ -72,7 +74,6 @@ export default function FolderDetailScreen() {
       const subs = getFolders(folderId);
       setSubfolders(subs);
 
-      // Cargar tareas al Store
       loadTasksForFolder(folderId);
     } catch (e) {
       console.error('Error cargando detalle de carpeta:', e);
@@ -91,9 +92,9 @@ export default function FolderDetailScreen() {
     setRefreshing(false);
   };
 
-  const handleCreateSubfolder = (name: string, color: string) => {
+  const handleCreateSubfolder = (name: string, color: string, description = '') => {
     try {
-      createFolder(name, folderId, color);
+      createFolder(name, folderId, color, description);
       loadData();
     } catch (e) {
       Alert.alert('Error', 'No se pudo crear la subcarpeta.');
@@ -114,14 +115,13 @@ export default function FolderDetailScreen() {
   };
 
   const handleStatusChange = (taskId: number, nextStatus: TaskStatus) => {
-    // Optimistic UI: actualización instantánea en UI thread / store antes de persistir
     moveTaskStatusOptimistic(taskId, nextStatus);
   };
 
   const handleDeleteTask = (taskId: number) => {
     Alert.alert(
       'Eliminar Tarea',
-      '¿Deseas eliminar esta tarea? El trigger registrará la auditoría en SQLite.',
+      '¿Deseas eliminar esta tarea de forma permanente?',
       [
         { text: 'Cancelar', style: 'cancel' },
         {
@@ -138,7 +138,7 @@ export default function FolderDetailScreen() {
   const handleDeleteSubfolder = (subfolderId: number) => {
     Alert.alert(
       'Eliminar Subcarpeta',
-      '¿Deseas eliminar esta subcarpeta y sus elementos?',
+      '¿Deseas eliminar esta subcarpeta y todo su contenido?',
       [
         { text: 'Cancelar', style: 'cancel' },
         {
@@ -162,7 +162,6 @@ export default function FolderDetailScreen() {
     setIsTaskModalOpen(true);
   };
 
-  // Filtrado para la vista en lista
   const filteredTasks = tasks.filter((t) => {
     if (activeTab === 'ALL') return true;
     return t.status === activeTab;
@@ -192,24 +191,28 @@ export default function FolderDetailScreen() {
         <View className="bg-white rounded-3xl p-5 mb-4 border border-slate-200/80 shadow-sm">
           <View className="flex-row items-center justify-between mb-3">
             <View className="flex-row items-center flex-1 mr-2">
-              <View
+              <TouchableOpacity
+                activeOpacity={0.8}
+                delayLongPress={800}
+                onLongPress={() => setSecretDevMenuUnlocked((prev) => !prev)}
                 className="w-12 h-12 rounded-2xl items-center justify-center mr-3"
                 style={{ backgroundColor: `${folder?.color || '#3B82F6'}18` }}
               >
                 <FolderIcon size={24} color={folder?.color || '#3B82F6'} />
-              </View>
+              </TouchableOpacity>
               <View className="flex-1">
                 <Text className="text-xl font-bold text-slate-800" numberOfLines={1}>
                   {folder?.name || 'Cargando...'}
                 </Text>
                 <Text className="text-xs text-slate-400 mt-0.5">
-                  ID: #{folderId} • Creado {folder?.created_at?.split(' ')[0] || ''}
+                  Creado {folder?.created_at?.split(' ')[0] || ''}
+                  {folder?.depth ? ` • Nivel ${folder.depth}` : ''}
                 </Text>
               </View>
             </View>
           </View>
 
-          {/* Métricas del Tablero Kanban con indicador Optimistic UI */}
+          {/* Resumen de Estado del Tablero Kanban */}
           <View className="flex-row justify-between bg-slate-50 p-2.5 rounded-2xl border border-slate-100">
             <View className="flex-1 items-center py-1">
               <Text className="text-xs text-slate-500 font-medium">Por Hacer</Text>
@@ -227,19 +230,27 @@ export default function FolderDetailScreen() {
             </View>
           </View>
 
-          {/* Badge de Arquitectura de Rendimiento */}
-          <View className="mt-3 pt-2.5 border-t border-slate-100 flex-row items-center justify-between">
-            <View className="flex-row items-center">
-              <Zap size={13} color="#2563EB" />
-              <Text className="text-[11px] font-semibold text-blue-600 ml-1">
-                Motor 60 FPS • UI Thread • SQLite WAL
-              </Text>
-            </View>
-            <Text className="text-[10px] text-slate-400 font-medium">Optimistic UI</Text>
-          </View>
+          {/* Telemetría encapsulada exclusivamente para modo desarrollo (__DEV__) o menú oculto */}
+          <DebugTelemetry
+            visibleBySecretMenu={secretDevMenuUnlocked}
+            folderDepth={folder?.depth}
+            totalNestedTasks={folder?.task_count}
+          />
         </View>
 
-        {/* Sección: Subcarpetas (si existen) */}
+        {/* Sección Expandible: Bloque de Contexto / Idea del Proyecto con Markdown y Edición In-Situ */}
+        <ProjectContextSection
+          folderId={folderId}
+          initialDescription={folder?.description}
+          onDescriptionSaved={(newDesc) => {
+            setFolder((prev) => (prev ? { ...prev, description: newDesc } : prev));
+          }}
+        />
+
+        {/* Bloque de Historial de Actividad Acotado (Lazy Loading + Paginación) */}
+        <ProjectHistorySection folderId={folderId} />
+
+        {/* Sección: Subcarpetas */}
         <View className="mb-4">
           <View className="flex-row items-center justify-between mb-2">
             <View className="flex-row items-center">
@@ -278,7 +289,6 @@ export default function FolderDetailScreen() {
             </View>
 
             <View className="flex-row items-center space-x-2">
-              {/* Conmutador de Vistas: Columnas Kanban vs Lista Táctil */}
               <View className="flex-row bg-slate-200/80 p-0.5 rounded-xl mr-2">
                 <TouchableOpacity
                   onPress={() => setViewMode('KANBAN')}
@@ -315,7 +325,6 @@ export default function FolderDetailScreen() {
           </View>
 
           {viewMode === 'KANBAN' ? (
-            /* Vista 1: Tablero Multicolumna Kanban Horizontal */
             <KanbanBoardView
               tasks={tasks}
               onMoveStatus={handleStatusChange}
@@ -323,9 +332,7 @@ export default function FolderDetailScreen() {
               onOpenCreateTask={openCreateTaskForStatus}
             />
           ) : (
-            /* Vista 2: Lista con Pestañas y Gestos de Arrastre Continuo */
             <View>
-              {/* Filtros de Pestaña Kanban */}
               <View className="flex-row space-x-1.5 bg-slate-200/60 p-1 rounded-xl mb-3">
                 {[
                   { id: 'ALL', label: 'Todas' },
@@ -351,15 +358,11 @@ export default function FolderDetailScreen() {
                 ))}
               </View>
 
-              {/* Lista de Tarjetas Optimizadas con Gestos 60 FPS */}
               {filteredTasks.length === 0 ? (
                 <View className="py-10 bg-white rounded-2xl border border-slate-100 items-center justify-center p-4">
                   <CheckCircle2 size={32} color="#CBD5E1" />
                   <Text className="text-sm font-semibold text-slate-600 mt-2">
                     No hay tareas en esta sección
-                  </Text>
-                  <Text className="text-xs text-slate-400 text-center mt-0.5">
-                    Mantén y arrastra lateralmente para mover entre estados Kanban.
                   </Text>
                 </View>
               ) : (
@@ -377,7 +380,6 @@ export default function FolderDetailScreen() {
         </View>
       </ScrollView>
 
-      {/* Modales */}
       <CreateFolderModal
         visible={isFolderModalOpen}
         onClose={() => setIsFolderModalOpen(false)}

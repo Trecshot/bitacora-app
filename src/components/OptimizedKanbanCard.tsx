@@ -1,6 +1,7 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, Platform } from 'react-native';
 import { GestureDetector, Gesture } from 'react-native-gesture-handler';
+import * as Haptics from 'expo-haptics';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -56,40 +57,48 @@ export const OptimizedKanbanCard: React.FC<OptimizedKanbanCardProps> = ({
   const nextStatus = getNextStatus();
   const prevStatus = getPrevStatus();
 
+  const triggerHapticFeedback = () => {
+    if (Platform.OS !== 'web') {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+    }
+  };
+
   const handleCommitStatus = (status: TaskStatus) => {
+    if (Platform.OS !== 'web') {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+    }
     onMoveStatus(task.id, status);
   };
 
   /**
    * Motor de Gestos (react-native-gesture-handler)
-   * Captura continua de coordenadas (X, Y) ejecutada exclusivamente
-   * en el UI thread mediante worklets sin cruzar el bridge de React Native.
+   * Ejecutado íntegramente en el UI thread mediante Worklets de Reanimated.
+   * Al activar la pulsación larga, dispara retroalimentación háptica y escala a 1.05.
    */
   const panGesture = Gesture.Pan()
-    .activateAfterLongPress(100)
-    .onBegin(() => {
+    .activateAfterLongPress(150)
+    .onStart(() => {
       'worklet';
-      // Animador UI: Escala y elevación inmediata al sostener la tarjeta
-      scale.value = withSpring(1.04, { damping: 14, stiffness: 220 });
+      scale.value = withSpring(1.05, { damping: 14, stiffness: 220 });
       zIndex.value = 100;
       isDragging.value = true;
+      runOnJS(triggerHapticFeedback)();
     })
     .onUpdate((event) => {
       'worklet';
-      // Captura de coordenadas físicas (X, Y) continuas a 60 FPS en hilo nativo
       translateX.value = event.translationX;
-      translateY.value = event.translationY * 0.4; // amortiguación vertical para no salirse de la fila
+      translateY.value = event.translationY * 0.35;
     })
     .onEnd((event) => {
       'worklet';
-      // Detección de soltar (drop) sobre zona Kanban
       if (event.translationX > DRAG_THRESHOLD && nextStatus) {
         runOnJS(handleCommitStatus)(nextStatus);
       } else if (event.translationX < -DRAG_THRESHOLD && prevStatus) {
         runOnJS(handleCommitStatus)(prevStatus);
       }
-
-      // Animación de retorno (drop) sin latencia
+    })
+    .onFinalize(() => {
+      'worklet';
       scale.value = withSpring(1, { damping: 18, stiffness: 220 });
       translateX.value = withSpring(0, { damping: 20, stiffness: 240 });
       translateY.value = withSpring(0, { damping: 20, stiffness: 240 });
@@ -138,19 +147,19 @@ export const OptimizedKanbanCard: React.FC<OptimizedKanbanCardProps> = ({
         return {
           label: 'Completado',
           bg: 'bg-emerald-50 text-emerald-700 border-emerald-200',
-          icon: <CheckCircle2 size={15} color="#10B981" />,
+          icon: <CheckCircle2 size={14} color="#10B981" />,
         };
       case 'IN_PROGRESS':
         return {
           label: 'En Progreso',
           bg: 'bg-amber-50 text-amber-700 border-amber-200',
-          icon: <Clock size={15} color="#F59E0B" />,
+          icon: <Clock size={14} color="#F59E0B" />,
         };
       default:
         return {
           label: 'Por Hacer',
           bg: 'bg-slate-100 text-slate-700 border-slate-200',
-          icon: <Circle size={15} color="#64748B" />,
+          icon: <Circle size={14} color="#64748B" />,
         };
     }
   };
@@ -170,7 +179,7 @@ export const OptimizedKanbanCard: React.FC<OptimizedKanbanCardProps> = ({
   const priorityBadge = getPriorityBadge();
 
   return (
-    <View className="mb-3 relative rounded-2xl overflow-hidden">
+    <View className="mb-2.5 relative rounded-2xl overflow-hidden">
       {/* Zona visual de Drop hacia la izquierda (Retroceso Kanban) */}
       <Animated.View
         style={[animatedLeftDropStyle]}
@@ -178,7 +187,7 @@ export const OptimizedKanbanCard: React.FC<OptimizedKanbanCardProps> = ({
       >
         <ArrowLeft size={18} color="#FFFFFF" />
         <Text className="text-white font-bold text-xs ml-2">
-          {prevStatus === 'TODO' ? 'Soltar en "Por Hacer"' : 'Soltar en "En Progreso"'}
+          {prevStatus === 'TODO' ? 'Por Hacer' : 'En Progreso'}
         </Text>
       </Animated.View>
 
@@ -188,38 +197,35 @@ export const OptimizedKanbanCard: React.FC<OptimizedKanbanCardProps> = ({
         className="absolute inset-0 bg-emerald-600 rounded-2xl flex-row items-center px-4 justify-end"
       >
         <Text className="text-white font-bold text-xs mr-2">
-          {nextStatus === 'IN_PROGRESS' ? 'Soltar en "En Progreso"' : 'Soltar en "Completado"'}
+          {nextStatus === 'IN_PROGRESS' ? 'En Progreso' : 'Completado'}
         </Text>
         <ArrowRight size={18} color="#FFFFFF" />
       </Animated.View>
 
-      {/* Tarjeta de Tarea optimizada con Gestos continuos y Reanimated */}
+      {/* Tarjeta de Tarea compacta con feedback háptico y Reanimated scale(1.05) */}
       <GestureDetector gesture={panGesture}>
         <Animated.View
-          style={[
-            animatedCardStyle,
-            styles.cardShadow,
-          ]}
-          className="bg-white p-4 rounded-2xl border border-slate-200/90"
+          style={[animatedCardStyle, styles.cardShadow]}
+          className="bg-white p-3.5 rounded-2xl border border-slate-200/90"
         >
-          {/* Fila Superior: Badges y Manilla de Arrastre */}
-          <View className="flex-row items-center justify-between mb-2">
-            <View className="flex-row items-center space-x-2">
+          {/* Fila Superior: Badges y Acciones */}
+          <View className="flex-row items-center justify-between mb-1.5">
+            <View className="flex-row items-center space-x-1.5">
               <TouchableOpacity
                 activeOpacity={0.7}
                 onPress={() => {
                   const cycle: TaskStatus[] = ['TODO', 'IN_PROGRESS', 'DONE'];
                   const currentIndex = cycle.indexOf(task.status);
                   const next = cycle[(currentIndex + 1) % cycle.length];
-                  onMoveStatus(task.id, next);
+                  handleCommitStatus(next);
                 }}
-                className={`flex-row items-center px-2.5 py-1 rounded-full border ${statusBadge.bg}`}
+                className={`flex-row items-center px-2 py-0.5 rounded-full border ${statusBadge.bg}`}
               >
                 {statusBadge.icon}
-                <Text className="text-xs font-semibold ml-1.5">{statusBadge.label}</Text>
+                <Text className="text-[11px] font-semibold ml-1">{statusBadge.label}</Text>
               </TouchableOpacity>
 
-              <View className={`px-2 py-0.5 rounded-md border ${priorityBadge.color}`}>
+              <View className={`px-2 py-0.5 rounded-md border ml-1.5 ${priorityBadge.color}`}>
                 <Text className="text-[10px] font-bold uppercase">{priorityBadge.label}</Text>
               </View>
             </View>
@@ -231,17 +237,16 @@ export const OptimizedKanbanCard: React.FC<OptimizedKanbanCardProps> = ({
                   hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                   className="p-1 mr-1"
                 >
-                  <Trash2 size={15} color="#94A3B8" />
+                  <Trash2 size={14} color="#94A3B8" />
                 </TouchableOpacity>
               )}
-              {/* Indicador de agarre táctil */}
-              <GripVertical size={16} color="#CBD5E1" />
+              <GripVertical size={15} color="#CBD5E1" />
             </View>
           </View>
 
           {/* Título de la tarea */}
           <Text
-            className={`text-base font-semibold text-slate-800 ${
+            className={`text-sm font-semibold text-slate-800 ${
               task.status === 'DONE' ? 'line-through text-slate-400' : ''
             }`}
           >
@@ -254,18 +259,6 @@ export const OptimizedKanbanCard: React.FC<OptimizedKanbanCardProps> = ({
               {task.description}
             </Text>
           )}
-
-          {/* Pie de Tarjeta: Orientación táctil */}
-          <View className="mt-2.5 pt-2 border-t border-slate-100 flex-row items-center justify-between">
-            <Text className="text-[10px] text-slate-400 font-medium">
-              Mantén y arrastra (Hold & Drag) para mover en Kanban
-            </Text>
-            {Boolean(task.created_at) && (
-              <Text className="text-[10px] text-slate-400">
-                {task.created_at?.split(' ')[1] || ''}
-              </Text>
-            )}
-          </View>
         </Animated.View>
       </GestureDetector>
     </View>
