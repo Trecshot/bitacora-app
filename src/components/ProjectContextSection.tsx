@@ -12,7 +12,6 @@ import Animated, {
   useSharedValue,
   useAnimatedStyle,
   withTiming,
-  withSpring,
 } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
 import Markdown from 'react-native-markdown-display';
@@ -46,15 +45,9 @@ export const ProjectContextSection: React.FC<ProjectContextSectionProps> = ({
 
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastTapRef = useRef<number>(0);
-  const latestDraftRef = useRef(draftDescription);
-  latestDraftRef.current = draftDescription;
+  const latestDraftRef = useRef(initialDescription);
 
-  // Sincronizar si cambia initialDescription externamente
-  useEffect(() => {
-    if (!isEditing) {
-      setDraftDescription(initialDescription || '');
-    }
-  }, [initialDescription, isEditing]);
+  const currentDescription = isEditing ? draftDescription : initialDescription;
 
   // Animación del chevron con Reanimated
   const chevronRotation = useSharedValue(1); // 1 = expandido (0 deg), 0 = colapsado (-90 deg)
@@ -84,11 +77,11 @@ export const ProjectContextSection: React.FC<ProjectContextSectionProps> = ({
     async (textToSave: string) => {
       try {
         setSaveStatus('saving');
-        await updateFolderDescriptionAsync(folderId, textToSave);
-        setSaveStatus('saved');
         if (onDescriptionSaved) {
           onDescriptionSaved(textToSave);
         }
+        await updateFolderDescriptionAsync(folderId, textToSave);
+        setSaveStatus('saved');
         setTimeout(() => {
           setSaveStatus((prev) => (prev === 'saved' ? 'idle' : prev));
         }, 1400);
@@ -102,6 +95,7 @@ export const ProjectContextSection: React.FC<ProjectContextSectionProps> = ({
 
   const handleTextChange = (text: string) => {
     setDraftDescription(text);
+    latestDraftRef.current = text;
     setSaveStatus('saving');
 
     if (debounceTimerRef.current) {
@@ -122,6 +116,16 @@ export const ProjectContextSection: React.FC<ProjectContextSectionProps> = ({
     persistToSQLite(latestDraftRef.current);
   };
 
+  const startEditing = () => {
+    const startText = initialDescription || '';
+    setDraftDescription(startText);
+    latestDraftRef.current = startText;
+    setIsEditing(true);
+    if (!isExpanded) {
+      setIsExpanded(true);
+    }
+  };
+
   const toggleEditing = () => {
     triggerHaptic(Haptics.ImpactFeedbackStyle.Medium);
     if (isEditing) {
@@ -133,10 +137,7 @@ export const ProjectContextSection: React.FC<ProjectContextSectionProps> = ({
       persistToSQLite(latestDraftRef.current);
       setIsEditing(false);
     } else {
-      setIsEditing(true);
-      if (!isExpanded) {
-        setIsExpanded(true);
-      }
+      startEditing();
     }
   };
 
@@ -150,15 +151,12 @@ export const ProjectContextSection: React.FC<ProjectContextSectionProps> = ({
     const now = Date.now();
     if (now - lastTapRef.current < 320) {
       triggerHaptic(Haptics.ImpactFeedbackStyle.Medium);
-      setIsEditing(true);
-      if (!isExpanded) {
-        setIsExpanded(true);
-      }
+      startEditing();
     }
     lastTapRef.current = now;
   };
 
-  const hasContent = Boolean(draftDescription && draftDescription.trim().length > 0);
+  const hasContent = Boolean(currentDescription && currentDescription.trim().length > 0);
 
   return (
     <View className="bg-white rounded-3xl mb-4 border border-slate-200/80 shadow-sm overflow-hidden">
@@ -193,7 +191,7 @@ export const ProjectContextSection: React.FC<ProjectContextSectionProps> = ({
             </View>
             {!isExpanded && hasContent && (
               <Text className="text-xs text-slate-400 mt-0.5" numberOfLines={1}>
-                {draftDescription.replace(/[#*`_]/g, '').trim()}
+                {currentDescription.replace(/[#*`_]/g, '').trim()}
               </Text>
             )}
           </View>
@@ -257,7 +255,7 @@ export const ProjectContextSection: React.FC<ProjectContextSectionProps> = ({
             <Pressable onPress={handleContentPress}>
               {hasContent ? (
                 <View className="min-h-[40px]">
-                  <Markdown style={markdownStyles}>{draftDescription}</Markdown>
+                  <Markdown style={markdownStyles}>{currentDescription}</Markdown>
                   <View className="mt-2 pt-2 border-t border-slate-100 flex-row items-center justify-end">
                     <Text className="text-[10px] text-slate-400">
                       Toca dos veces para editar
@@ -269,7 +267,7 @@ export const ProjectContextSection: React.FC<ProjectContextSectionProps> = ({
                   activeOpacity={0.7}
                   onPress={() => {
                     triggerHaptic();
-                    setIsEditing(true);
+                    startEditing();
                   }}
                   className="py-5 items-center justify-center border-2 border-dashed border-slate-200 rounded-2xl bg-slate-50/50"
                 >

@@ -1,12 +1,18 @@
 import React, { useState } from 'react';
 import { View, Text, TextInput, Modal, TouchableOpacity } from 'react-native';
-import { X, PlusCircle } from 'lucide-react-native';
+import { X, PlusCircle, Calendar } from 'lucide-react-native';
 import { TaskPriority, TaskStatus } from '../db/database';
 
 interface CreateTaskModalProps {
   visible: boolean;
   onClose: () => void;
-  onSubmit: (title: string, description: string, priority: TaskPriority, status: TaskStatus) => void;
+  onSubmit: (
+    title: string,
+    description: string,
+    priority: TaskPriority,
+    status: TaskStatus,
+    dueDate: string | null
+  ) => void;
   defaultStatus?: TaskStatus;
 }
 
@@ -15,6 +21,16 @@ const PRIORITIES: { label: string; value: TaskPriority }[] = [
   { label: 'Media', value: 'MEDIUM' },
   { label: 'Alta', value: 'HIGH' },
 ];
+
+type DuePreset = 'NONE' | 'TODAY' | 'TOMORROW' | 'NEXT_WEEK';
+
+function computeDateFromPreset(preset: DuePreset): string | null {
+  if (preset === 'NONE') return null;
+  const days = preset === 'TODAY' ? 0 : preset === 'TOMORROW' ? 1 : 7;
+  const d = new Date(Date.now() + days * 86400000);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
 
 export const CreateTaskModal: React.FC<CreateTaskModalProps> = ({
   visible,
@@ -25,13 +41,16 @@ export const CreateTaskModal: React.FC<CreateTaskModalProps> = ({
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [priority, setPriority] = useState<TaskPriority>('MEDIUM');
+  const [duePreset, setDuePreset] = useState<DuePreset>('NONE');
 
   const handleCreate = () => {
     if (!title.trim()) return;
-    onSubmit(title.trim(), description.trim(), priority, defaultStatus);
+    const dueDate = computeDateFromPreset(duePreset);
+    onSubmit(title.trim(), description.trim(), priority, defaultStatus, dueDate);
     setTitle('');
     setDescription('');
     setPriority('MEDIUM');
+    setDuePreset('NONE');
     onClose();
   };
 
@@ -73,7 +92,7 @@ export const CreateTaskModal: React.FC<CreateTaskModalProps> = ({
           />
 
           <Text className="text-xs font-semibold text-slate-600 mb-1">Prioridad</Text>
-          <View className="flex-row space-x-2 mb-6">
+          <View className="flex-row space-x-2 mb-4">
             {PRIORITIES.map((p) => (
               <TouchableOpacity
                 key={p.value}
@@ -90,6 +109,41 @@ export const CreateTaskModal: React.FC<CreateTaskModalProps> = ({
                   }`}
                 >
                   {p.label}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+
+          <View className="flex-row items-center mb-1.5">
+            <Calendar size={13} color="#64748B" />
+            <Text className="text-xs font-semibold text-slate-600 ml-1">
+              Fecha límite (opcional)
+            </Text>
+          </View>
+          <View className="flex-row flex-wrap mb-5">
+            {(
+              [
+                { id: 'NONE', label: 'Sin fecha' },
+                { id: 'TODAY', label: 'Hoy' },
+                { id: 'TOMORROW', label: 'Mañana' },
+                { id: 'NEXT_WEEK', label: '+7 días' },
+              ] as { id: DuePreset; label: string }[]
+            ).map((opt) => (
+              <TouchableOpacity
+                key={opt.id}
+                onPress={() => setDuePreset(opt.id)}
+                className={`px-3 py-1.5 rounded-xl border mr-1.5 mb-1.5 ${
+                  duePreset === opt.id
+                    ? 'bg-blue-600 border-blue-600'
+                    : 'bg-slate-50 border-slate-200'
+                }`}
+              >
+                <Text
+                  className={`text-xs font-semibold ${
+                    duePreset === opt.id ? 'text-white' : 'text-slate-600'
+                  }`}
+                >
+                  {opt.label}
                 </Text>
               </TouchableOpacity>
             ))}

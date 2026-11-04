@@ -10,7 +10,13 @@ import Animated, {
   interpolate,
   Extrapolation,
 } from 'react-native-reanimated';
-import { Folder as FolderIcon, ChevronRight, CheckSquare, Trash2 } from 'lucide-react-native';
+import {
+  Folder as FolderIcon,
+  ChevronRight,
+  CheckSquare,
+  Trash2,
+  AlertTriangle,
+} from 'lucide-react-native';
 import { Folder } from '../db/database';
 
 interface FolderCardProps {
@@ -25,6 +31,7 @@ const FULL_SWIPE_DELETE_THRESHOLD = -170;
 
 export const FolderCard: React.FC<FolderCardProps> = ({ folder, onPress, onDelete }) => {
   const accentColor = folder.color || '#3B82F6';
+  const staleCount = folder.stale_task_count ?? 0;
   const translateX = useSharedValue(0);
   const startX = useSharedValue(0);
 
@@ -96,8 +103,8 @@ export const FolderCard: React.FC<FolderCardProps> = ({ folder, onPress, onDelet
   });
 
   const handleCardPress = () => {
-    if (translateX.value < -10) {
-      translateX.value = withSpring(0, { damping: 20, stiffness: 240 });
+    if (translateX.get() < -10) {
+      translateX.set(withSpring(0, { damping: 20, stiffness: 240 }));
       return;
     }
     onPress();
@@ -128,7 +135,9 @@ export const FolderCard: React.FC<FolderCardProps> = ({ folder, onPress, onDelet
           <TouchableOpacity
             activeOpacity={0.85}
             onPress={handleCardPress}
-            className="bg-white rounded-2xl p-4 border border-slate-100 flex-row items-center justify-between"
+            className={`bg-white rounded-2xl p-4 border flex-row items-center justify-between ${
+              staleCount > 0 ? 'border-amber-300/90' : 'border-slate-100'
+            }`}
           >
             <View className="flex-row items-center flex-1 mr-4">
               {/* Icon Container con color dinámico */}
@@ -141,9 +150,19 @@ export const FolderCard: React.FC<FolderCardProps> = ({ folder, onPress, onDelet
 
               {/* Textos informativos */}
               <View className="flex-1">
-                <Text className="text-base font-semibold text-slate-800" numberOfLines={1}>
-                  {folder.name}
-                </Text>
+                <View className="flex-row items-center">
+                  <Text
+                    className="text-base font-semibold text-slate-800 flex-shrink"
+                    numberOfLines={1}
+                  >
+                    {folder.name}
+                  </Text>
+                  <View
+                    className="w-2.5 h-2.5 rounded-full ml-2"
+                    style={{ backgroundColor: accentColor }}
+                  />
+                </View>
+
                 <View className="flex-row items-center mt-1 flex-wrap">
                   <View className="flex-row items-center mr-3.5">
                     <CheckSquare size={13} color="#94A3B8" />
@@ -152,10 +171,20 @@ export const FolderCard: React.FC<FolderCardProps> = ({ folder, onPress, onDelet
                     </Text>
                   </View>
                   {(folder.subfolder_count ?? 0) > 0 && (
-                    <View className="flex-row items-center">
+                    <View className="flex-row items-center mr-3.5">
                       <FolderIcon size={12} color="#94A3B8" />
                       <Text className="text-xs text-slate-500 ml-1 font-medium">
                         {folder.subfolder_count} subcarpetas
+                      </Text>
+                    </View>
+                  )}
+
+                  {/* Alerta visual de Métricas de Estancamiento (Stale Tasks > 7 días) */}
+                  {staleCount > 0 && (
+                    <View className="flex-row items-center bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200 mt-0.5">
+                      <AlertTriangle size={11} color="#D97706" />
+                      <Text className="text-[10px] font-bold text-amber-700 ml-1">
+                        {staleCount} estancada{staleCount === 1 ? '' : 's'} (&gt;7d)
                       </Text>
                     </View>
                   )}

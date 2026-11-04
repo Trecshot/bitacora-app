@@ -21,6 +21,7 @@ export interface Folder {
   updated_at?: string;
   task_count?: number;
   subfolder_count?: number;
+  stale_task_count?: number;
   depth?: number;
 }
 
@@ -35,6 +36,7 @@ export interface Task {
   status: TaskStatus;
   priority: TaskPriority;
   due_date?: string | null;
+  is_deleted?: number;
   created_at?: string;
   updated_at?: string;
 }
@@ -45,7 +47,16 @@ export interface AuditLog {
   entity_id: number;
   folder_id?: number | null;
   task_id?: number | null;
-  action: 'CREATE' | 'UPDATE' | 'STATUS_CHANGE' | 'PRIORITY_CHANGE' | 'STATUS_TRIGGER' | 'PRIORITY_TRIGGER' | 'DELETE';
+  action:
+    | 'CREATE'
+    | 'UPDATE'
+    | 'STATUS_CHANGE'
+    | 'PRIORITY_CHANGE'
+    | 'STATUS_TRIGGER'
+    | 'PRIORITY_TRIGGER'
+    | 'SOFT_DELETE'
+    | 'RESTORE'
+    | 'DELETE';
   old_value: string | null;
   new_value: string | null;
   timestamp: string;
@@ -84,9 +95,32 @@ let inMemoryCategories: NoteCategory[] = [];
 let inMemoryNotes: Note[] = [];
 let isInitialized = false;
 
+function formatDateTimeOffset(daysOffset = 0): string {
+  const date = new Date(Date.now() + daysOffset * 86400000);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(
+    date.getHours()
+  )}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+}
+
+function formatDateOnlyOffset(daysOffset = 0): string {
+  const date = new Date(Date.now() + daysOffset * 86400000);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
 function getNow(): string {
-  const now = new Date();
-  return now.toISOString().replace('T', ' ').substring(0, 19);
+  return formatDateTimeOffset(0);
+}
+
+function isTaskStale(task: Task): boolean {
+  if ((task.is_deleted ?? 0) !== 0) return false;
+  if (task.status !== 'IN_PROGRESS') return false;
+  if (!task.updated_at) return false;
+  const updatedMs = new Date(task.updated_at.replace(' ', 'T')).getTime();
+  if (Number.isNaN(updatedMs)) return false;
+  const sevenDaysAgoMs = Date.now() - 7 * 86400000;
+  return updatedMs < sevenDaysAgoMs;
 }
 
 export const db = {
@@ -105,21 +139,23 @@ export function initDatabase(): void {
     {
       id: 1,
       name: 'Proyecto Principal',
-      description: '# Visión del Proyecto\nEste espacio centraliza las tareas, hitos y notas clave de la bitácora.\n\n- **Objetivo**: Optimizar la productividad y organización.\n- **Metodología**: Tablero Kanban interactivo con persistencia local SQLite.',
+      description:
+        '# Visión del Proyecto\nEste espacio centraliza las tareas, hitos y notas clave de la bitácora.\n\n- **Objetivo**: Optimizar la productividad y organización.\n- **Metodología**: Tablero Kanban interactivo con persistencia local SQLite.',
       parent_id: null,
       color: '#3B82F6',
       icon: 'folder-kanban',
-      created_at: getNow(),
+      created_at: formatDateTimeOffset(-10),
       updated_at: getNow(),
     },
     {
       id: 2,
       name: 'Documentación & Notas',
-      description: 'Documentación técnica del sistema, guías y especificaciones de arquitectura.',
+      description:
+        'Documentación técnica del sistema, guías y especificaciones de arquitectura.',
       parent_id: null,
       color: '#10B981',
       icon: 'book-open',
-      created_at: getNow(),
+      created_at: formatDateTimeOffset(-5),
       updated_at: getNow(),
     },
     {
@@ -129,15 +165,97 @@ export function initDatabase(): void {
       parent_id: null,
       color: '#8B5CF6',
       icon: 'palette',
-      created_at: getNow(),
+      created_at: formatDateTimeOffset(-3),
       updated_at: getNow(),
     },
   ];
 
   inMemoryTasks = [
-    { id: 1, folder_id: 1, title: 'Configurar arquitectura SQLite y Triggers', description: 'Persistencia local con Expo SQLite v58', status: 'DONE', priority: 'HIGH', created_at: getNow(), updated_at: getNow() },
-    { id: 2, folder_id: 1, title: 'Implementar vista de Kanban interactiva', description: 'Arrastre y gestos con react-native-reanimated', status: 'IN_PROGRESS', priority: 'HIGH', created_at: getNow(), updated_at: getNow() },
-    { id: 3, folder_id: 1, title: 'Pruebas de navegación con Expo Router', description: 'Validar rutas dinámicas en app/folder/[id]', status: 'TODO', priority: 'MEDIUM', created_at: getNow(), updated_at: getNow() },
+    {
+      id: 1,
+      folder_id: 1,
+      title: 'Configurar arquitectura SQLite y Triggers',
+      description: 'Persistencia local con Expo SQLite y Soft Deletes',
+      status: 'DONE',
+      priority: 'HIGH',
+      due_date: formatDateOnlyOffset(0),
+      is_deleted: 0,
+      created_at: formatDateTimeOffset(-4),
+      updated_at: getNow(),
+    },
+    {
+      id: 2,
+      folder_id: 1,
+      title: 'Implementar vista de Kanban interactiva',
+      description: 'Arrastre y Edge Scrolling con react-native-reanimated',
+      status: 'IN_PROGRESS',
+      priority: 'HIGH',
+      due_date: formatDateOnlyOffset(-2),
+      is_deleted: 0,
+      created_at: formatDateTimeOffset(-10),
+      updated_at: formatDateTimeOffset(-9),
+    },
+    {
+      id: 3,
+      folder_id: 1,
+      title: 'Pruebas de navegación con Expo Router',
+      description: 'Validar rutas dinámicas y Breadcrumbs en app/folder/[id]',
+      status: 'TODO',
+      priority: 'MEDIUM',
+      due_date: formatDateOnlyOffset(3),
+      is_deleted: 0,
+      created_at: formatDateTimeOffset(-1),
+      updated_at: formatDateTimeOffset(-1),
+    },
+  ];
+
+  inMemoryAuditLogs = [
+    {
+      id: 1,
+      entity_type: 'FOLDER',
+      entity_id: 1,
+      folder_id: 1,
+      task_id: null,
+      action: 'CREATE',
+      old_value: null,
+      new_value: JSON.stringify({ name: 'Proyecto Principal', parent_id: null }),
+      timestamp: formatDateTimeOffset(-5),
+    },
+    {
+      id: 2,
+      entity_type: 'TASK',
+      entity_id: 3,
+      folder_id: 1,
+      task_id: 3,
+      action: 'CREATE',
+      old_value: null,
+      new_value: JSON.stringify({
+        title: 'Pruebas de navegación con Expo Router',
+        status: 'TODO',
+        priority: 'MEDIUM',
+        folder_id: 1,
+      }),
+      timestamp: formatDateTimeOffset(-1),
+    },
+    {
+      id: 3,
+      entity_type: 'TASK',
+      entity_id: 1,
+      folder_id: 1,
+      task_id: 1,
+      action: 'STATUS_CHANGE',
+      old_value: JSON.stringify({
+        title: 'Configurar arquitectura SQLite y Triggers',
+        status: 'IN_PROGRESS',
+        priority: 'HIGH',
+      }),
+      new_value: JSON.stringify({
+        title: 'Configurar arquitectura SQLite y Triggers',
+        status: 'DONE',
+        priority: 'HIGH',
+      }),
+      timestamp: getNow(),
+    },
   ];
 
   // Semilla de Notas y Categorías
@@ -162,7 +280,8 @@ export function initDatabase(): void {
       category_id: seriesAnimadasId,
       category_name: 'Series Animadas',
       title: '⭐ Series Animadas Pendientes',
-      content: '• Arcane: Temporada 2\n• Invincible\n• Cyberpunk: Edgerunners\n• Castlevania: Nocturne',
+      content:
+        '• Arcane: Temporada 2\n• Invincible\n• Cyberpunk: Edgerunners\n• Castlevania: Nocturne',
       is_pinned: 1,
       created_at: getNow(),
       updated_at: getNow(),
@@ -182,7 +301,8 @@ export function initDatabase(): void {
       category_id: personalId,
       category_name: 'Personal',
       title: '⭐ Recordatorios Personales',
-      content: '• Revisar entrega de proyecto de Bitácora\n• Comprar insumos de trabajo\n• Programar copia de seguridad',
+      content:
+        '• Revisar entrega de proyecto de Bitácora\n• Comprar insumos de trabajo\n• Programar copia de seguridad',
       is_pinned: 1,
       created_at: getNow(),
       updated_at: getNow(),
@@ -192,7 +312,8 @@ export function initDatabase(): void {
       category_id: ideasId,
       category_name: 'Ideas',
       title: 'Ideas de Diseño UI',
-      content: 'Cuadrícula asimétrica Masonry para notas, pestañas tipo píldora horizontales y selector de subcategorías dinámico.',
+      content:
+        'Cuadrícula asimétrica Masonry para notas, pestañas tipo píldora horizontales y selector de subcategorías dinámico.',
       is_pinned: 0,
       created_at: getNow(),
       updated_at: getNow(),
@@ -230,10 +351,14 @@ function getFolderDepth(folderId: number): number {
 function enrichFolderWithRecursiveMetrics(f: Folder): Folder {
   const descendantIds = getDescendantFolderIds(f.id);
   const allHierarchyIds = [f.id, ...descendantIds];
+  const activeHierarchyTasks = inMemoryTasks.filter(
+    (t) => allHierarchyIds.includes(t.folder_id) && (t.is_deleted ?? 0) === 0
+  );
   return {
     ...f,
     depth: getFolderDepth(f.id),
-    task_count: inMemoryTasks.filter((t) => allHierarchyIds.includes(t.folder_id)).length,
+    task_count: activeHierarchyTasks.length,
+    stale_task_count: activeHierarchyTasks.filter(isTaskStale).length,
     subfolder_count: descendantIds.length,
   };
 }
@@ -256,20 +381,46 @@ export function getFolderById(id: number): Folder | null {
   return enrichFolderWithRecursiveMetrics(f);
 }
 
+export function getFolderBreadcrumbs(folderId: number): Folder[] {
+  initDatabase();
+  const path: Folder[] = [];
+  let current = inMemoryFolders.find((f) => f.id === folderId);
+  while (current) {
+    path.unshift(current);
+    current =
+      current.parent_id !== null
+        ? inMemoryFolders.find((f) => f.id === current!.parent_id)
+        : undefined;
+  }
+  return path;
+}
+
+export function getGlobalStaleTasksCount(): number {
+  initDatabase();
+  return inMemoryTasks.filter(isTaskStale).length;
+}
+
 export function createFolder(
   name: string,
   parentId: number | null = null,
-  color = '#3B82F6',
+  color?: string,
   description = ''
 ): number {
   initDatabase();
+  let resolvedColor = color;
+  if (!resolvedColor && parentId !== null) {
+    const parentFolder = inMemoryFolders.find((f) => f.id === parentId);
+    resolvedColor = parentFolder?.color || '#3B82F6';
+  }
+  const finalColor = resolvedColor || '#3B82F6';
+
   const id = inMemoryFolders.length > 0 ? Math.max(...inMemoryFolders.map((f) => f.id)) + 1 : 1;
   const newFolder: Folder = {
     id,
     name,
     description,
     parent_id: parentId,
-    color,
+    color: finalColor,
     icon: 'folder',
     created_at: getNow(),
     updated_at: getNow(),
@@ -283,7 +434,7 @@ export function createFolder(
     task_id: null,
     action: 'CREATE',
     old_value: null,
-    new_value: JSON.stringify({ name, parent_id: parentId, description }),
+    new_value: JSON.stringify({ name, parent_id: parentId, color: finalColor, description }),
     timestamp: getNow(),
   });
   return id;
@@ -337,7 +488,19 @@ export function deleteFolder(id: number): void {
 
 export function getTasks(folderId: number): Task[] {
   initDatabase();
-  return inMemoryTasks.filter((t) => t.folder_id === folderId).reverse();
+  return inMemoryTasks
+    .filter((t) => t.folder_id === folderId && (t.is_deleted ?? 0) === 0)
+    .reverse();
+}
+
+export function getDeletedTasks(folderId?: number): Task[] {
+  initDatabase();
+  return inMemoryTasks
+    .filter(
+      (t) =>
+        (t.is_deleted ?? 0) === 1 && (folderId === undefined || t.folder_id === folderId)
+    )
+    .reverse();
 }
 
 export function createTask(
@@ -345,7 +508,8 @@ export function createTask(
   title: string,
   description = '',
   status: TaskStatus = 'TODO',
-  priority: TaskPriority = 'MEDIUM'
+  priority: TaskPriority = 'MEDIUM',
+  dueDate: string | null = null
 ): number {
   initDatabase();
   const id = inMemoryTasks.length > 0 ? Math.max(...inMemoryTasks.map((t) => t.id)) + 1 : 1;
@@ -356,7 +520,8 @@ export function createTask(
     description,
     status,
     priority,
-    due_date: null,
+    due_date: dueDate,
+    is_deleted: 0,
     created_at: getNow(),
     updated_at: getNow(),
   };
@@ -369,7 +534,14 @@ export function createTask(
     task_id: id,
     action: 'CREATE',
     old_value: null,
-    new_value: JSON.stringify({ title, status, priority, folder_id: folderId }),
+    new_value: JSON.stringify({
+      title,
+      status,
+      priority,
+      folder_id: folderId,
+      due_date: dueDate,
+      is_deleted: 0,
+    }),
     timestamp: getNow(),
   });
   return id;
@@ -389,8 +561,16 @@ export function updateTaskStatus(id: number, status: TaskStatus): void {
       folder_id: task.folder_id,
       task_id: id,
       action: oldStatus !== status ? 'STATUS_CHANGE' : 'UPDATE',
-      old_value: JSON.stringify({ title: task.title, status: oldStatus, priority: task.priority }),
-      new_value: JSON.stringify({ title: task.title, status, priority: task.priority }),
+      old_value: JSON.stringify({
+        title: task.title,
+        status: oldStatus,
+        priority: task.priority,
+      }),
+      new_value: JSON.stringify({
+        title: task.title,
+        status,
+        priority: task.priority,
+      }),
       timestamp: getNow(),
     });
   }
@@ -405,9 +585,10 @@ export async function createTaskAsync(
   title: string,
   description = '',
   status: TaskStatus = 'TODO',
-  priority: TaskPriority = 'MEDIUM'
+  priority: TaskPriority = 'MEDIUM',
+  dueDate: string | null = null
 ): Promise<number> {
-  return createTask(folderId, title, description, status, priority);
+  return createTask(folderId, title, description, status, priority, dueDate);
 }
 
 export async function deleteTaskAsync(id: number): Promise<void> {
@@ -415,6 +596,70 @@ export async function deleteTaskAsync(id: number): Promise<void> {
 }
 
 export function deleteTask(id: number): void {
+  initDatabase();
+  const task = inMemoryTasks.find((t) => t.id === id);
+  if (task && (task.is_deleted ?? 0) === 0) {
+    task.is_deleted = 1;
+    task.updated_at = getNow();
+    inMemoryAuditLogs.unshift({
+      id: inMemoryAuditLogs.length + 1,
+      entity_type: 'TASK',
+      entity_id: id,
+      folder_id: task.folder_id,
+      task_id: id,
+      action: 'SOFT_DELETE',
+      old_value: JSON.stringify({
+        title: task.title,
+        status: task.status,
+        priority: task.priority,
+        is_deleted: 0,
+      }),
+      new_value: JSON.stringify({
+        title: task.title,
+        status: task.status,
+        priority: task.priority,
+        is_deleted: 1,
+      }),
+      timestamp: getNow(),
+    });
+  }
+}
+
+export function restoreTask(id: number): void {
+  initDatabase();
+  const task = inMemoryTasks.find((t) => t.id === id);
+  if (task && (task.is_deleted ?? 0) === 1) {
+    task.is_deleted = 0;
+    task.updated_at = getNow();
+    inMemoryAuditLogs.unshift({
+      id: inMemoryAuditLogs.length + 1,
+      entity_type: 'TASK',
+      entity_id: id,
+      folder_id: task.folder_id,
+      task_id: id,
+      action: 'RESTORE',
+      old_value: JSON.stringify({
+        title: task.title,
+        status: task.status,
+        priority: task.priority,
+        is_deleted: 1,
+      }),
+      new_value: JSON.stringify({
+        title: task.title,
+        status: task.status,
+        priority: task.priority,
+        is_deleted: 0,
+      }),
+      timestamp: getNow(),
+    });
+  }
+}
+
+export async function restoreTaskAsync(id: number): Promise<void> {
+  restoreTask(id);
+}
+
+export function hardDeleteTask(id: number): void {
   initDatabase();
   const task = inMemoryTasks.find((t) => t.id === id);
   if (task) {
@@ -425,12 +670,20 @@ export function deleteTask(id: number): void {
       folder_id: task.folder_id,
       task_id: id,
       action: 'DELETE',
-      old_value: JSON.stringify({ title: task.title, status: task.status, priority: task.priority }),
+      old_value: JSON.stringify({
+        title: task.title,
+        status: task.status,
+        priority: task.priority,
+      }),
       new_value: null,
       timestamp: getNow(),
     });
   }
   inMemoryTasks = inMemoryTasks.filter((t) => t.id !== id);
+}
+
+export async function hardDeleteTaskAsync(id: number): Promise<void> {
+  hardDeleteTask(id);
 }
 
 export function getAuditLogs(limit = 50, taskId?: number): AuditLog[] {
@@ -449,7 +702,11 @@ export function getProjectAuditLogs(folderId: number, limit = 20, offset = 0): A
     .slice(offset, offset + limit);
 }
 
-export async function getProjectAuditLogsAsync(folderId: number, limit = 20, offset = 0): Promise<AuditLog[]> {
+export async function getProjectAuditLogsAsync(
+  folderId: number,
+  limit = 20,
+  offset = 0
+): Promise<AuditLog[]> {
   return getProjectAuditLogs(folderId, limit, offset);
 }
 
@@ -465,7 +722,9 @@ export function getMainNoteCategories(): NoteCategory[] {
       ...c,
       subcategories_count: inMemoryCategories.filter((sub) => sub.parent_id === c.id).length,
       notes_count: inMemoryNotes.filter((n) => {
-        const subIds = inMemoryCategories.filter((sub) => sub.parent_id === c.id).map((sub) => sub.id);
+        const subIds = inMemoryCategories
+          .filter((sub) => sub.parent_id === c.id)
+          .map((sub) => sub.id);
         return n.category_id === c.id || subIds.includes(n.category_id);
       }).length,
     }));
@@ -517,8 +776,12 @@ export function getNotes(categoryId?: string | null, isMainCategoryWithSubs = fa
 
   if (categoryId && categoryId !== 'ALL') {
     if (isMainCategoryWithSubs) {
-      const subIds = inMemoryCategories.filter((c) => c.parent_id === categoryId).map((c) => c.id);
-      filtered = filtered.filter((n) => n.category_id === categoryId || subIds.includes(n.category_id));
+      const subIds = inMemoryCategories
+        .filter((c) => c.parent_id === categoryId)
+        .map((c) => c.id);
+      filtered = filtered.filter(
+        (n) => n.category_id === categoryId || subIds.includes(n.category_id)
+      );
     } else {
       filtered = filtered.filter((n) => n.category_id === categoryId);
     }

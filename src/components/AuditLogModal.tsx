@@ -1,8 +1,23 @@
-import React from 'react';
-import { View, Text, Modal, TouchableOpacity, ScrollView } from 'react-native';
-import { X, History, CheckCircle2, ArrowRightLeft, PlusCircle, Trash2, Edit3 } from 'lucide-react-native';
+import React, { useMemo } from 'react';
+import { View, Text, Modal, TouchableOpacity, SectionList } from 'react-native';
+import {
+  X,
+  History,
+  CheckCircle2,
+  ArrowRightLeft,
+  PlusCircle,
+  Trash2,
+  Edit3,
+  CalendarClock,
+  RotateCcw,
+} from 'lucide-react-native';
 import { AuditLog } from '../db/database';
-import { parseAuditLogEntry, ParsedAuditEntry } from '../utils/auditParser';
+import {
+  parseAuditLogEntry,
+  ParsedAuditEntry,
+  groupAuditLogsByRelativeDate,
+  AuditLogSection,
+} from '../utils/auditParser';
 
 interface AuditLogModalProps {
   visible: boolean;
@@ -17,6 +32,11 @@ export const AuditLogModal: React.FC<AuditLogModalProps> = ({
   logs,
   onRefresh,
 }) => {
+  // Agrupación memoizada bajo cabeceras de fechas relativas: "Hoy", "Ayer", "La semana pasada"
+  const groupedSections: AuditLogSection[] = useMemo(() => {
+    return groupAuditLogsByRelativeDate(logs);
+  }, [logs]);
+
   const getBadgeStyle = (type: ParsedAuditEntry['badgeType']) => {
     switch (type) {
       case 'CREATE':
@@ -24,6 +44,12 @@ export const AuditLogModal: React.FC<AuditLogModalProps> = ({
           bg: 'bg-emerald-50 border-emerald-200',
           text: 'text-emerald-700',
           icon: <PlusCircle size={12} color="#059669" />,
+        };
+      case 'RESTORE':
+        return {
+          bg: 'bg-teal-50 border-teal-200',
+          text: 'text-teal-700',
+          icon: <RotateCcw size={12} color="#0D9488" />,
         };
       case 'STATUS':
         return {
@@ -65,7 +91,7 @@ export const AuditLogModal: React.FC<AuditLogModalProps> = ({
               <View>
                 <Text className="text-lg font-bold text-slate-800">Historial de Actividad</Text>
                 <Text className="text-xs text-slate-500">
-                  Registro cronológico de cambios en tareas y carpetas
+                  Agrupación dinámica por fechas relativas (Hoy, Ayer, La semana pasada)
                 </Text>
               </View>
             </View>
@@ -74,50 +100,70 @@ export const AuditLogModal: React.FC<AuditLogModalProps> = ({
             </TouchableOpacity>
           </View>
 
-          {/* Lista de Registros de Auditoría con Lenguaje Natural */}
-          <ScrollView className="flex-1 mt-4" showsVerticalScrollIndicator={false}>
-            {logs.length === 0 ? (
+          {/* Lista de Registros de Auditoría agrupados en SectionList */}
+          <View className="flex-1 mt-4">
+            {groupedSections.length === 0 ? (
               <View className="py-12 items-center">
                 <Text className="text-sm text-slate-400">No hay actividad registrada aún.</Text>
               </View>
             ) : (
-              logs.map((log) => {
-                const parsed = parseAuditLogEntry(log);
-                const style = getBadgeStyle(parsed.badgeType);
-
-                return (
-                  <View
-                    key={log.id}
-                    className="p-3.5 mb-2.5 rounded-2xl bg-slate-50 border border-slate-200/80"
-                  >
-                    <View className="flex-row items-center justify-between mb-1.5">
-                      <View className={`flex-row items-center px-2 py-0.5 rounded-md border ${style.bg}`}>
-                        {style.icon}
-                        <Text className={`text-[10px] font-bold tracking-wide ml-1 ${style.text}`}>
-                          {parsed.badgeLabel}
-                        </Text>
-                      </View>
-                      <Text className="text-[11px] text-slate-400">{log.timestamp}</Text>
-                    </View>
-
-                    <Text className="text-sm font-bold text-slate-800 mt-0.5" numberOfLines={1}>
-                      {parsed.title}
-                    </Text>
-
-                    <Text className="text-xs text-slate-600 mt-1 leading-relaxed">
-                      {parsed.summary}
-                    </Text>
-
-                    {Boolean(parsed.detail) && (
-                      <Text className="text-[11px] text-slate-400 mt-1 font-medium">
-                        {parsed.detail}
+              <SectionList
+                sections={groupedSections}
+                keyExtractor={(item) => item.id.toString()}
+                showsVerticalScrollIndicator={false}
+                stickySectionHeadersEnabled={false}
+                renderSectionHeader={({ section }) => (
+                  <View className="flex-row items-center justify-between bg-slate-100 px-3.5 py-2 rounded-xl mb-2 mt-1 border border-slate-200/80">
+                    <View className="flex-row items-center">
+                      <CalendarClock size={14} color="#64748B" />
+                      <Text className="text-xs font-bold text-slate-700 ml-1.5">
+                        {section.title}
                       </Text>
-                    )}
+                    </View>
+                    <Text className="text-[11px] font-bold text-slate-500">
+                      {section.data.length} evento{section.data.length === 1 ? '' : 's'}
+                    </Text>
                   </View>
-                );
-              })
+                )}
+                renderItem={({ item: log }) => {
+                  const parsed = parseAuditLogEntry(log);
+                  const style = getBadgeStyle(parsed.badgeType);
+
+                  return (
+                    <View className="p-3.5 mb-2.5 rounded-2xl bg-slate-50 border border-slate-200/80">
+                      <View className="flex-row items-center justify-between mb-1.5">
+                        <View
+                          className={`flex-row items-center px-2 py-0.5 rounded-md border ${style.bg}`}
+                        >
+                          {style.icon}
+                          <Text
+                            className={`text-[10px] font-bold tracking-wide ml-1 ${style.text}`}
+                          >
+                            {parsed.badgeLabel}
+                          </Text>
+                        </View>
+                        <Text className="text-[11px] text-slate-400">{log.timestamp}</Text>
+                      </View>
+
+                      <Text className="text-sm font-bold text-slate-800 mt-0.5" numberOfLines={1}>
+                        {parsed.title}
+                      </Text>
+
+                      <Text className="text-xs text-slate-600 mt-1 leading-relaxed">
+                        {parsed.summary}
+                      </Text>
+
+                      {Boolean(parsed.detail) && (
+                        <Text className="text-[11px] text-slate-400 mt-1 font-medium">
+                          {parsed.detail}
+                        </Text>
+                      )}
+                    </View>
+                  );
+                }}
+              />
             )}
-          </ScrollView>
+          </View>
 
           {/* Footer */}
           <TouchableOpacity

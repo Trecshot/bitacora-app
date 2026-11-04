@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -10,7 +10,7 @@ import {
   Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter, useLocalSearchParams, Stack } from 'expo-router';
+import { useRouter, useLocalSearchParams, useFocusEffect, Stack } from 'expo-router';
 import {
   ArrowLeft,
   Pin,
@@ -45,7 +45,7 @@ export default function NoteEditorScreen() {
   const [lastSaved, setLastSaved] = useState<string | null>(null);
 
   // Cargar categorías y nota existente si aplica
-  useEffect(() => {
+  const loadEditorData = useCallback(() => {
     try {
       const allCats = getAllNoteCategories();
       setCategories(allCats);
@@ -71,6 +71,12 @@ export default function NoteEditorScreen() {
       console.error('Error cargando datos en editor de notas:', e);
     }
   }, [id, initialCategoryId]);
+
+  useFocusEffect(
+    useCallback(() => {
+      loadEditorData();
+    }, [loadEditorData])
+  );
 
   const handleSave = () => {
     if (!title.trim() && !content.trim()) {
@@ -102,7 +108,7 @@ export default function NoteEditorScreen() {
         );
       }
       router.back();
-    } catch (e) {
+    } catch {
       Alert.alert('Error', 'No se pudo guardar la nota.');
       setIsSaving(false);
     }
@@ -119,7 +125,7 @@ export default function NoteEditorScreen() {
           try {
             deleteNote(id);
             router.back();
-          } catch (e) {
+          } catch {
             Alert.alert('Error', 'No se pudo eliminar la nota.');
           }
         },

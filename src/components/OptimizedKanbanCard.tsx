@@ -18,6 +18,8 @@ import {
   ArrowLeft,
   Trash2,
   GripVertical,
+  Calendar,
+  AlertTriangle,
 } from 'lucide-react-native';
 import { Task, TaskStatus } from '../db/database';
 
@@ -25,14 +27,27 @@ interface OptimizedKanbanCardProps {
   task: Task;
   onMoveStatus: (id: number, nextStatus: TaskStatus) => void;
   onDelete?: (id: number) => void;
+  /** Callback para Edge Scrolling cuando el puntero se desplaza horizontalmente */
+  onDragMoveX?: (absoluteX: number) => void;
+  /** Callback al finalizar el arrastre para detener el Edge Scrolling */
+  onDragEnd?: () => void;
 }
 
 const DRAG_THRESHOLD = 85;
+
+function checkIsStale(task: Task): boolean {
+  if (task.status !== 'IN_PROGRESS' || !task.updated_at) return false;
+  const updatedMs = new Date(task.updated_at.replace(' ', 'T')).getTime();
+  if (Number.isNaN(updatedMs)) return false;
+  return updatedMs < Date.now() - 7 * 86400000;
+}
 
 export const OptimizedKanbanCard: React.FC<OptimizedKanbanCardProps> = ({
   task,
   onMoveStatus,
   onDelete,
+  onDragMoveX,
+  onDragEnd,
 }) => {
   // Coordenadas físicas (X, Y) y valores de animación en el UI thread
   const translateX = useSharedValue(0);
@@ -40,6 +55,8 @@ export const OptimizedKanbanCard: React.FC<OptimizedKanbanCardProps> = ({
   const scale = useSharedValue(1);
   const zIndex = useSharedValue(1);
   const isDragging = useSharedValue(false);
+
+  const isStale = checkIsStale(task);
 
   // Estados adyacentes en el flujo Kanban
   const getNextStatus = (): TaskStatus | null => {
@@ -70,24 +87,38 @@ export const OptimizedKanbanCard: React.FC<OptimizedKanbanCardProps> = ({
     onMoveStatus(task.id, status);
   };
 
+  const notifyDragMoveX = (absX: number) => {
+    if (onDragMoveX) {
+      onDragMoveX(absX);
+    }
+  };
+
+  const notifyDragEnd = () => {
+    if (onDragEnd) {
+      onDragEnd();
+    }
+  };
+
   /**
    * Motor de Gestos (react-native-gesture-handler)
-   * Ejecutado íntegramente en el UI thread mediante Worklets de Reanimated.
-   * Al activar la pulsación larga, dispara retroalimentación háptica y escala a 1.05.
+   * Ejecutado en el UI thread mediante Worklets de Reanimated y reportando
+   * coordenada absoluta (event.absoluteX) para Edge Scrolling en el 10% del margen.
    */
   const panGesture = Gesture.Pan()
     .activateAfterLongPress(150)
-    .onStart(() => {
+    .onStart((event) => {
       'worklet';
       scale.value = withSpring(1.05, { damping: 14, stiffness: 220 });
       zIndex.value = 100;
       isDragging.value = true;
       runOnJS(triggerHapticFeedback)();
+      runOnJS(notifyDragMoveX)(event.absoluteX);
     })
     .onUpdate((event) => {
       'worklet';
       translateX.value = event.translationX;
       translateY.value = event.translationY * 0.35;
+      runOnJS(notifyDragMoveX)(event.absoluteX);
     })
     .onEnd((event) => {
       'worklet';
@@ -104,6 +135,7 @@ export const OptimizedKanbanCard: React.FC<OptimizedKanbanCardProps> = ({
       translateY.value = withSpring(0, { damping: 20, stiffness: 240 });
       zIndex.value = 1;
       isDragging.value = false;
+      runOnJS(notifyDragEnd)();
     });
 
   // Estilos animados en el UI Thread (sin uso de CPU de JS)
@@ -206,11 +238,13 @@ export const OptimizedKanbanCard: React.FC<OptimizedKanbanCardProps> = ({
       <GestureDetector gesture={panGesture}>
         <Animated.View
           style={[animatedCardStyle, styles.cardShadow]}
-          className="bg-white p-3.5 rounded-2xl border border-slate-200/90"
+          className={`bg-white p-3.5 rounded-2xl border ${
+            isStale ? 'border-amber-300' : 'border-slate-200/90'
+          }`}
         >
           {/* Fila Superior: Badges y Acciones */}
           <View className="flex-row items-center justify-between mb-1.5">
-            <View className="flex-row items-center space-x-1.5">
+            <View className="flex-row items-center flex-wrap">
               <TouchableOpacity
                 activeOpacity={0.7}
                 onPress={() => {
@@ -258,6 +292,28 @@ export const OptimizedKanbanCard: React.FC<OptimizedKanbanCardProps> = ({
             <Text className="text-xs text-slate-500 mt-1 leading-relaxed" numberOfLines={2}>
               {task.description}
             </Text>
+          )}
+
+          {/* Metadatos inferiores: Fecha límite y alerta de estancamiento */}
+          {(Boolean(task.due_date) || isStale) && (
+            <View className="flex-row items-center justify-between mt-2 pt-1.5 border-t border-slate-100 flex-wrap">
+              {Boolean(task.due_date) && (
+                <View className="flex-row items-center mr-2">
+                  <Calendar size={11} color="#64748B" />
+                  <Text className="text-[10px] text-slate-500 font-medium ml-1">
+                    Vence: {task.due_date?.substring(0, 10)}
+                  </Text>
+                </View>
+              )}
+              {isStale && (
+                <View className="flex-row items-center bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200">
+                  <AlertTriangle size={10} color="#D97706" />
+                  <Text className="text-[10px] font-bold text-amber-700 ml-1">
+                    Estancada (&gt;7d)
+                  </Text>
+                </View>
+              )}
+            </View>
           )}
         </Animated.View>
       </GestureDetector>

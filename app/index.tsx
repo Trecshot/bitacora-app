@@ -19,12 +19,14 @@ import {
   Folder as FolderIcon,
   FileText,
   FolderKanban,
+  AlertTriangle,
 } from 'lucide-react-native';
 import {
   getFolders,
   createFolder,
   deleteFolder,
   getAuditLogs,
+  getGlobalStaleTasksCount,
   Folder,
   AuditLog,
 } from '../src/db/database';
@@ -39,6 +41,7 @@ export default function HomeScreen() {
 
   // Estados del módulo de Proyectos
   const [folders, setFolders] = useState<Folder[]>([]);
+  const [globalStaleCount, setGlobalStaleCount] = useState<number>(0);
   const [searchQuery, setSearchQuery] = useState('');
   const [refreshing, setRefreshing] = useState(false);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
@@ -49,6 +52,7 @@ export default function HomeScreen() {
     try {
       const data = getFolders(null);
       setFolders(data);
+      setGlobalStaleCount(getGlobalStaleTasksCount());
     } catch (e) {
       console.error('Error cargando carpetas:', e);
     }
@@ -81,7 +85,7 @@ export default function HomeScreen() {
     try {
       createFolder(name, null, color, description);
       loadData();
-    } catch (e) {
+    } catch {
       Alert.alert('Error', 'No se pudo crear la carpeta.');
     }
   };
@@ -99,7 +103,7 @@ export default function HomeScreen() {
             try {
               deleteFolder(id);
               loadData();
-            } catch (e) {
+            } catch {
               Alert.alert('Error', 'No se pudo eliminar la carpeta.');
             }
           },
@@ -175,7 +179,7 @@ export default function HomeScreen() {
         <NotesView />
       ) : (
         <View className="flex-1 px-4 pt-3">
-          {/* Banner de Resumen y Métricas de Proyectos */}
+          {/* Banner de Resumen y Métricas de Proyectos (con Cálculo de Estancamiento) */}
           <View className="bg-white rounded-3xl p-4 mb-4 border border-slate-200/70 shadow-sm">
             <View className="flex-row items-center justify-between mb-3">
               <View className="flex-row items-center">
@@ -201,7 +205,9 @@ export default function HomeScreen() {
               <View className="flex-1 items-center py-1">
                 <View className="flex-row items-center">
                   <FolderIcon size={14} color="#3B82F6" />
-                  <Text className="text-base font-bold text-slate-800 ml-1.5">{folders.length}</Text>
+                  <Text className="text-base font-bold text-slate-800 ml-1.5">
+                    {folders.length}
+                  </Text>
                 </View>
                 <Text className="text-[11px] text-slate-400 mt-0.5">Carpetas Raíz</Text>
               </View>
@@ -210,9 +216,36 @@ export default function HomeScreen() {
                   <CheckCircle2 size={14} color="#10B981" />
                   <Text className="text-base font-bold text-slate-800 ml-1.5">{totalTasks}</Text>
                 </View>
-                <Text className="text-[11px] text-slate-400 mt-0.5">Tareas Totales</Text>
+                <Text className="text-[11px] text-slate-400 mt-0.5">Tareas Activas</Text>
+              </View>
+              <View className="flex-1 items-center py-1">
+                <View className="flex-row items-center">
+                  <AlertTriangle
+                    size={14}
+                    color={globalStaleCount > 0 ? '#D97706' : '#94A3B8'}
+                  />
+                  <Text
+                    className={`text-base font-bold ml-1.5 ${
+                      globalStaleCount > 0 ? 'text-amber-600' : 'text-slate-800'
+                    }`}
+                  >
+                    {globalStaleCount}
+                  </Text>
+                </View>
+                <Text className="text-[11px] text-slate-400 mt-0.5">Estancadas (&gt;7d)</Text>
               </View>
             </View>
+
+            {globalStaleCount > 0 && (
+              <View className="mt-2.5 pt-2 border-t border-amber-100 bg-amber-50/70 px-3 py-2 rounded-xl flex-row items-center">
+                <AlertTriangle size={14} color="#D97706" />
+                <Text className="text-[11px] text-amber-800 font-medium ml-2 flex-1">
+                  Alerta de estancamiento: {globalStaleCount} tarea
+                  {globalStaleCount === 1 ? '' : 's'} en &quot;En Progreso&quot; sin cambios en más
+                  de 7 días.
+                </Text>
+              </View>
+            )}
           </View>
 
           {/* Buscador y Añadir Carpeta */}
@@ -257,9 +290,12 @@ export default function HomeScreen() {
                 <View className="w-16 h-16 rounded-3xl bg-slate-100 items-center justify-center mb-3">
                   <FolderIcon size={32} color="#94A3B8" />
                 </View>
-                <Text className="text-base font-semibold text-slate-700">No se encontraron carpetas</Text>
+                <Text className="text-base font-semibold text-slate-700">
+                  No se encontraron carpetas
+                </Text>
                 <Text className="text-xs text-slate-400 mt-1 text-center px-8">
-                  Crea una nueva carpeta con el botón (+) para comenzar a organizar tus tareas y notas.
+                  Crea una nueva carpeta con el botón (+) para comenzar a organizar tus tareas y
+                  notas.
                 </Text>
               </View>
             }

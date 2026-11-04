@@ -23,6 +23,7 @@ export interface Folder {
   updated_at?: string;
   task_count?: number;
   subfolder_count?: number;
+  stale_task_count?: number;
   depth?: number;
 }
 
@@ -37,6 +38,7 @@ export interface Task {
   status: TaskStatus;
   priority: TaskPriority;
   due_date?: string | null;
+  is_deleted?: number;
   created_at?: string;
   updated_at?: string;
 }
@@ -47,7 +49,16 @@ export interface AuditLog {
   entity_id: number;
   folder_id?: number | null;
   task_id?: number | null;
-  action: 'CREATE' | 'UPDATE' | 'STATUS_CHANGE' | 'PRIORITY_CHANGE' | 'STATUS_TRIGGER' | 'PRIORITY_TRIGGER' | 'DELETE';
+  action:
+    | 'CREATE'
+    | 'UPDATE'
+    | 'STATUS_CHANGE'
+    | 'PRIORITY_CHANGE'
+    | 'STATUS_TRIGGER'
+    | 'PRIORITY_TRIGGER'
+    | 'SOFT_DELETE'
+    | 'RESTORE'
+    | 'DELETE';
   old_value: string | null;
   new_value: string | null;
   timestamp: string;
@@ -81,7 +92,7 @@ export const db = SQLite.openDatabaseSync('bitacora.db');
 
 /**
  * Función de migración inicial:
- * Crea las tablas de Proyectos (Folders, Tasks, Audit_Logs) con sus triggers,
+ * Crea las tablas de Proyectos (Folders, Tasks con Soft Delete, Audit_Logs) con sus triggers,
  * índices B-Tree de rendimiento y las tablas independientes de Notas.
  */
 export function initDatabase(): void {
@@ -111,6 +122,7 @@ export function initDatabase(): void {
       status TEXT NOT NULL DEFAULT 'TODO',
       priority TEXT NOT NULL DEFAULT 'MEDIUM',
       due_date TEXT DEFAULT NULL,
+      is_deleted BOOLEAN DEFAULT 0,
       created_at TEXT DEFAULT (datetime('now', 'localtime')),
       updated_at TEXT DEFAULT (datetime('now', 'localtime')),
       FOREIGN KEY (folder_id) REFERENCES Folders(id) ON DELETE CASCADE
@@ -128,6 +140,13 @@ export function initDatabase(): void {
       timestamp TEXT DEFAULT (datetime('now', 'localtime'))
     );
   `);
+
+  // Asegurar que la columna is_deleted exista en Tasks (Migración Soft Delete)
+  const taskColumns = db.getAllSync<{ name: string }>('PRAGMA table_info(Tasks);');
+  const hasIsDeletedColumn = taskColumns.some((col) => col.name === 'is_deleted');
+  if (!hasIsDeletedColumn) {
+    db.execSync('ALTER TABLE Tasks ADD COLUMN is_deleted BOOLEAN DEFAULT 0;');
+  }
 
   // Asegurar que las columnas task_id y folder_id existan en Audit_Logs
   const auditColumns = db.getAllSync<{ name: string }>('PRAGMA table_info(Audit_Logs);');
@@ -149,7 +168,7 @@ export function initDatabase(): void {
         SET folder_id = entity_id
         WHERE entity_type = 'FOLDER' AND folder_id IS NULL;
       `);
-    } catch (e) {
+    } catch {
       // Ignorar si aún no hay tablas de datos
     }
   }
@@ -161,17 +180,18 @@ export function initDatabase(): void {
     db.execSync("ALTER TABLE Folders ADD COLUMN description TEXT DEFAULT '';");
   }
 
-  // Índices B-Tree para búsquedas eficientes por proyecto, fecha y jerarquías
+  // Índices B-Tree para búsquedas eficientes por proyecto, fecha, borrado lógico y jerarquías
   db.execSync(`
     CREATE INDEX IF NOT EXISTS idx_audit_folder_timestamp ON Audit_Logs (folder_id, timestamp DESC);
     CREATE INDEX IF NOT EXISTS idx_audit_logs_task_id ON Audit_Logs(task_id);
     CREATE INDEX IF NOT EXISTS idx_audit_logs_timestamp ON Audit_Logs(timestamp DESC);
     CREATE INDEX IF NOT EXISTS idx_audit_logs_entity ON Audit_Logs(entity_type, entity_id);
     CREATE INDEX IF NOT EXISTS idx_tasks_folder_id ON Tasks(folder_id);
+    CREATE INDEX IF NOT EXISTS idx_tasks_soft_delete_stale ON Tasks(is_deleted, status, updated_at);
     CREATE INDEX IF NOT EXISTS idx_folders_parent_id ON Folders(parent_id);
   `);
 
-  // Triggers de Auditoría para Tasks (con soporte de folder_id y task_id indexados)
+  // Triggers de Auditoría para Tasks (con trazabilidad de Soft Delete y Restauración)
   db.execSync(`
     DROP TRIGGER IF EXISTS trg_tasks_insert;
     CREATE TRIGGER trg_tasks_insert
@@ -185,7 +205,14 @@ export function initDatabase(): void {
         NEW.id,
         'CREATE',
         NULL,
-        json_object('title', NEW.title, 'status', NEW.status, 'priority', NEW.priority, 'folder_id', NEW.folder_id),
+        json_object(
+          'title', NEW.title,
+          'status', NEW.status,
+          'priority', NEW.priority,
+          'folder_id', NEW.folder_id,
+          'due_date', NEW.due_date,
+          'is_deleted', COALESCE(NEW.is_deleted, 0)
+        ),
         datetime('now', 'localtime')
       );
     END;
@@ -201,12 +228,26 @@ export function initDatabase(): void {
         NEW.folder_id,
         NEW.id,
         CASE 
+          WHEN COALESCE(OLD.is_deleted, 0) = 0 AND COALESCE(NEW.is_deleted, 0) = 1 THEN 'SOFT_DELETE'
+          WHEN COALESCE(OLD.is_deleted, 0) = 1 AND COALESCE(NEW.is_deleted, 0) = 0 THEN 'RESTORE'
           WHEN OLD.status <> NEW.status THEN 'STATUS_CHANGE'
           WHEN OLD.priority <> NEW.priority THEN 'PRIORITY_CHANGE'
           ELSE 'UPDATE'
         END,
-        json_object('title', OLD.title, 'status', OLD.status, 'priority', OLD.priority),
-        json_object('title', NEW.title, 'status', NEW.status, 'priority', NEW.priority),
+        json_object(
+          'title', OLD.title,
+          'status', OLD.status,
+          'priority', OLD.priority,
+          'due_date', OLD.due_date,
+          'is_deleted', COALESCE(OLD.is_deleted, 0)
+        ),
+        json_object(
+          'title', NEW.title,
+          'status', NEW.status,
+          'priority', NEW.priority,
+          'due_date', NEW.due_date,
+          'is_deleted', COALESCE(NEW.is_deleted, 0)
+        ),
         datetime('now', 'localtime')
       );
     END;
@@ -243,7 +284,7 @@ export function initDatabase(): void {
         NULL,
         'CREATE',
         NULL,
-        json_object('name', NEW.name, 'parent_id', NEW.parent_id),
+        json_object('name', NEW.name, 'parent_id', NEW.parent_id, 'color', NEW.color, 'description', NEW.description),
         datetime('now', 'localtime')
       );
     END;
@@ -331,32 +372,34 @@ function seedProjectDataIfEmpty(): void {
       ['Diseño UI/UX', '#8B5CF6', 'palette', 'Bocetos, patrones de componentes y guías de estilos para la aplicación.']
     );
 
-    // Tareas iniciales para la carpeta 1
+    // Tareas iniciales para la carpeta 1 (incluyendo una tarea estancada > 7 días y fechas límite)
     db.runSync(
-      `INSERT INTO Tasks (folder_id, title, description, status, priority) VALUES (?, ?, ?, ?, ?);`,
-      [1, 'Configurar arquitectura SQLite y Triggers', 'Persistencia local con Expo SQLite v58', 'DONE', 'HIGH']
+      `INSERT INTO Tasks (folder_id, title, description, status, priority, due_date, is_deleted)
+       VALUES (?, ?, ?, ?, ?, date('now', 'localtime'), 0);`,
+      [1, 'Configurar arquitectura SQLite y Triggers', 'Persistencia local con Expo SQLite y Soft Deletes', 'DONE', 'HIGH']
     );
     db.runSync(
-      `INSERT INTO Tasks (folder_id, title, description, status, priority) VALUES (?, ?, ?, ?, ?);`,
-      [1, 'Implementar vista de Kanban interactiva', 'Arrastre y gestos con react-native-reanimated', 'IN_PROGRESS', 'HIGH']
+      `INSERT INTO Tasks (folder_id, title, description, status, priority, due_date, is_deleted, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, date('now', '-2 days', 'localtime'), 0, datetime('now', '-10 days'), datetime('now', '-9 days'));`,
+      [1, 'Implementar vista de Kanban interactiva', 'Arrastre y Edge Scrolling con react-native-reanimated', 'IN_PROGRESS', 'HIGH']
     );
     db.runSync(
-      `INSERT INTO Tasks (folder_id, title, description, status, priority) VALUES (?, ?, ?, ?, ?);`,
-      [1, 'Pruebas de navegación con Expo Router', 'Validar rutas dinámicas en app/folder/[id]', 'TODO', 'MEDIUM']
+      `INSERT INTO Tasks (folder_id, title, description, status, priority, due_date, is_deleted)
+       VALUES (?, ?, ?, ?, ?, date('now', '+3 days', 'localtime'), 0);`,
+      [1, 'Pruebas de navegación con Expo Router', 'Validar rutas dinámicas y Breadcrumbs en app/folder/[id]', 'TODO', 'MEDIUM']
     );
   } else {
-    // Si la carpeta 1 ya existía sin descripción previa a la migración
     try {
       const rootFolder = db.getFirstSync<{ description: string | null }>('SELECT description FROM Folders WHERE id = 1;');
       if (rootFolder && (!rootFolder.description || rootFolder.description.trim() === '')) {
         db.runSync(
-          "UPDATE Folders SET description = ? WHERE id = 1;",
+          'UPDATE Folders SET description = ? WHERE id = 1;',
           [
             '# Visión del Proyecto\nEste espacio centraliza las tareas, hitos y notas clave de la bitácora.\n\n- **Objetivo**: Optimizar la productividad y organización.\n- **Metodología**: Tablero Kanban interactivo con persistencia local SQLite.',
           ]
         );
       }
-    } catch (e) {
+    } catch {
       // Ignorar si aún no existe
     }
   }
@@ -452,8 +495,8 @@ const RECURSIVE_FOLDER_CTE = `
 
 /**
  * Obtiene carpetas utilizando Common Table Expressions (CTEs) recursivas
- * para calcular en una sola transacción SQLite la profundidad (depth),
- * el conteo total de tareas anidadas y el total de subcarpetas descendientes.
+ * para calcular en una sola consulta la profundidad (depth), el conteo de tareas
+ * activas (is_deleted = 0), el total de subcarpetas y las tareas estancadas (> 7 días en IN_PROGRESS).
  */
 export function getFolders(parentId: number | null = null): Folder[] {
   const whereClause = parentId === null ? 'WHERE f.parent_id IS NULL' : 'WHERE f.parent_id = ?';
@@ -467,7 +510,17 @@ export function getFolders(parentId: number | null = null): Folder[] {
         FROM Tasks t
         INNER JOIN FolderHierarchy fh ON t.folder_id = fh.descendant_id
         WHERE fh.root_id = f.id
+          AND COALESCE(t.is_deleted, 0) = 0
       ) AS task_count,
+      (
+        SELECT COUNT(*)
+        FROM Tasks t
+        INNER JOIN FolderHierarchy fh ON t.folder_id = fh.descendant_id
+        WHERE fh.root_id = f.id
+          AND COALESCE(t.is_deleted, 0) = 0
+          AND t.status = 'IN_PROGRESS'
+          AND datetime(t.updated_at) < datetime('now', '-7 days')
+      ) AS stale_task_count,
       (
         SELECT COUNT(*)
         FROM FolderHierarchy fh
@@ -495,7 +548,17 @@ export function getFolderById(id: number): Folder | null {
         FROM Tasks t
         INNER JOIN FolderHierarchy fh ON t.folder_id = fh.descendant_id
         WHERE fh.root_id = f.id
+          AND COALESCE(t.is_deleted, 0) = 0
       ) AS task_count,
+      (
+        SELECT COUNT(*)
+        FROM Tasks t
+        INNER JOIN FolderHierarchy fh ON t.folder_id = fh.descendant_id
+        WHERE fh.root_id = f.id
+          AND COALESCE(t.is_deleted, 0) = 0
+          AND t.status = 'IN_PROGRESS'
+          AND datetime(t.updated_at) < datetime('now', '-7 days')
+      ) AS stale_task_count,
       (
         SELECT COUNT(*)
         FROM FolderHierarchy fh
@@ -508,17 +571,80 @@ export function getFolderById(id: number): Folder | null {
   return db.getFirstSync<Folder>(query, [id]);
 }
 
+/**
+ * Obtiene la ruta absoluta ascendente (Breadcrumbs) desde la carpeta raíz hasta la carpeta actual.
+ */
+export function getFolderBreadcrumbs(folderId: number): Folder[] {
+  const query = `
+    WITH RECURSIVE BreadcrumbPath AS (
+      SELECT f.*, 0 AS step
+      FROM Folders f
+      WHERE f.id = ?
+      UNION ALL
+      SELECT parent.*, bp.step + 1
+      FROM Folders parent
+      INNER JOIN BreadcrumbPath bp ON parent.id = bp.parent_id
+    )
+    SELECT id, name, description, parent_id, color, icon, created_at, updated_at
+    FROM BreadcrumbPath
+    ORDER BY step DESC;
+  `;
+  return db.getAllSync<Folder>(query, [folderId]);
+}
+
+/**
+ * Calcula el total global de tareas estancadas (Stale Tasks):
+ * SELECT COUNT(*) FROM Tasks WHERE status = 'IN_PROGRESS' AND updated_at < datetime('now', '-7 days')
+ */
+export function getGlobalStaleTasksCount(): number {
+  const row = db.getFirstSync<{ count: number }>(
+    `SELECT COUNT(*) AS count
+     FROM Tasks
+     WHERE COALESCE(is_deleted, 0) = 0
+       AND status = 'IN_PROGRESS'
+       AND datetime(updated_at) < datetime('now', '-7 days');`
+  );
+  return row?.count ?? 0;
+}
+
+/**
+ * Creación atómica de carpeta encapsulada en BEGIN TRANSACTION y COMMIT.
+ * Si es una subcarpeta y no se especifica un color explícito, hereda automáticamente
+ * el color hexadecimal de su nodo padre (default_color).
+ */
 export function createFolder(
   name: string,
   parentId: number | null = null,
-  color = '#3B82F6',
+  color?: string,
   description = ''
 ): number {
-  const result = db.runSync(
-    'INSERT INTO Folders (name, parent_id, color, description) VALUES (?, ?, ?, ?);',
-    [name, parentId, color, description]
-  );
-  return result.lastInsertRowId;
+  db.execSync('BEGIN TRANSACTION;');
+  try {
+    let resolvedColor = color;
+    if (!resolvedColor && parentId !== null) {
+      const parentRow = db.getFirstSync<{ color: string | null }>(
+        'SELECT color FROM Folders WHERE id = ?;',
+        [parentId]
+      );
+      resolvedColor = parentRow?.color || '#3B82F6';
+    }
+    const finalColor = resolvedColor || '#3B82F6';
+
+    const result = db.runSync(
+      'INSERT INTO Folders (name, parent_id, color, description) VALUES (?, ?, ?, ?);',
+      [name, parentId, finalColor, description]
+    );
+
+    db.execSync('COMMIT;');
+    return result.lastInsertRowId;
+  } catch (error) {
+    try {
+      db.execSync('ROLLBACK;');
+    } catch {
+      // Ignorar si la transacción ya fue cerrada
+    }
+    throw error;
+  }
 }
 
 export function updateFolderDescription(id: number, description: string): void {
@@ -539,10 +665,28 @@ export function deleteFolder(id: number): void {
   db.runSync('DELETE FROM Folders WHERE id = ?;', [id]);
 }
 
+/**
+ * Obtiene únicamente las tareas activas (Borrado Lógico: is_deleted = 0)
+ */
 export function getTasks(folderId: number): Task[] {
   return db.getAllSync<Task>(
-    'SELECT * FROM Tasks WHERE folder_id = ? ORDER BY id DESC;',
+    'SELECT * FROM Tasks WHERE folder_id = ? AND COALESCE(is_deleted, 0) = 0 ORDER BY id DESC;',
     [folderId]
+  );
+}
+
+/**
+ * Obtiene las tareas en la Papelera de Reciclaje (is_deleted = 1)
+ */
+export function getDeletedTasks(folderId?: number): Task[] {
+  if (folderId !== undefined) {
+    return db.getAllSync<Task>(
+      'SELECT * FROM Tasks WHERE folder_id = ? AND COALESCE(is_deleted, 0) = 1 ORDER BY updated_at DESC, id DESC;',
+      [folderId]
+    );
+  }
+  return db.getAllSync<Task>(
+    'SELECT * FROM Tasks WHERE COALESCE(is_deleted, 0) = 1 ORDER BY updated_at DESC, id DESC;'
   );
 }
 
@@ -551,18 +695,19 @@ export function createTask(
   title: string,
   description = '',
   status: TaskStatus = 'TODO',
-  priority: TaskPriority = 'MEDIUM'
+  priority: TaskPriority = 'MEDIUM',
+  dueDate: string | null = null
 ): number {
   const result = db.runSync(
-    'INSERT INTO Tasks (folder_id, title, description, status, priority) VALUES (?, ?, ?, ?, ?);',
-    [folderId, title, description, status, priority]
+    'INSERT INTO Tasks (folder_id, title, description, status, priority, due_date, is_deleted) VALUES (?, ?, ?, ?, ?, ?, 0);',
+    [folderId, title, description, status, priority, dueDate]
   );
   return result.lastInsertRowId;
 }
 
 export function updateTaskStatus(id: number, status: TaskStatus): void {
   db.runSync(
-    'UPDATE Tasks SET status = ?, updated_at = datetime(\'now\', \'localtime\') WHERE id = ?;',
+    "UPDATE Tasks SET status = ?, updated_at = datetime('now', 'localtime') WHERE id = ?;",
     [status, id]
   );
 }
@@ -570,7 +715,7 @@ export function updateTaskStatus(id: number, status: TaskStatus): void {
 // Ejecución de transacciones SQL en segundo plano con resolución de promesas (Modo WAL)
 export async function updateTaskStatusAsync(id: number, status: TaskStatus): Promise<void> {
   await db.runAsync(
-    'UPDATE Tasks SET status = ?, updated_at = datetime(\'now\', \'localtime\') WHERE id = ?;',
+    "UPDATE Tasks SET status = ?, updated_at = datetime('now', 'localtime') WHERE id = ?;",
     [status, id]
   );
 }
@@ -580,21 +725,59 @@ export async function createTaskAsync(
   title: string,
   description = '',
   status: TaskStatus = 'TODO',
-  priority: TaskPriority = 'MEDIUM'
+  priority: TaskPriority = 'MEDIUM',
+  dueDate: string | null = null
 ): Promise<number> {
   const result = await db.runAsync(
-    'INSERT INTO Tasks (folder_id, title, description, status, priority) VALUES (?, ?, ?, ?, ?);',
-    [folderId, title, description, status, priority]
+    'INSERT INTO Tasks (folder_id, title, description, status, priority, due_date, is_deleted) VALUES (?, ?, ?, ?, ?, ?, 0);',
+    [folderId, title, description, status, priority, dueDate]
   );
   return result.lastInsertRowId;
 }
 
+/**
+ * Borrado Lógico (Soft Delete): marca is_deleted = 1 preservando la trazabilidad en Audit_Logs
+ */
 export async function deleteTaskAsync(id: number): Promise<void> {
-  await db.runAsync('DELETE FROM Tasks WHERE id = ?;', [id]);
+  await db.runAsync(
+    "UPDATE Tasks SET is_deleted = 1, updated_at = datetime('now', 'localtime') WHERE id = ?;",
+    [id]
+  );
 }
 
 export function deleteTask(id: number): void {
+  db.runSync(
+    "UPDATE Tasks SET is_deleted = 1, updated_at = datetime('now', 'localtime') WHERE id = ?;",
+    [id]
+  );
+}
+
+/**
+ * Restaura una tarea desde la Papelera de Reciclaje (is_deleted = 0)
+ */
+export function restoreTask(id: number): void {
+  db.runSync(
+    "UPDATE Tasks SET is_deleted = 0, updated_at = datetime('now', 'localtime') WHERE id = ?;",
+    [id]
+  );
+}
+
+export async function restoreTaskAsync(id: number): Promise<void> {
+  await db.runAsync(
+    "UPDATE Tasks SET is_deleted = 0, updated_at = datetime('now', 'localtime') WHERE id = ?;",
+    [id]
+  );
+}
+
+/**
+ * Eliminación física definitiva desde la Papelera de Reciclaje
+ */
+export function hardDeleteTask(id: number): void {
   db.runSync('DELETE FROM Tasks WHERE id = ?;', [id]);
+}
+
+export async function hardDeleteTaskAsync(id: number): Promise<void> {
+  await db.runAsync('DELETE FROM Tasks WHERE id = ?;', [id]);
 }
 
 export function getAuditLogs(limit = 50, taskId?: number): AuditLog[] {

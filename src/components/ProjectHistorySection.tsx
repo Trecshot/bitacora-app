@@ -1,10 +1,11 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import {
   View,
   Text,
   TouchableOpacity,
   ActivityIndicator,
   Platform,
+  SectionList,
 } from 'react-native';
 import Animated, {
   useSharedValue,
@@ -21,9 +22,16 @@ import {
   Edit3,
   Trash2,
   CheckCircle2,
+  CalendarClock,
+  RotateCcw,
 } from 'lucide-react-native';
 import { AuditLog, getProjectAuditLogsAsync } from '../db/database';
-import { parseAuditLogEntry, ParsedAuditEntry } from '../utils/auditParser';
+import {
+  parseAuditLogEntry,
+  ParsedAuditEntry,
+  groupAuditLogsByRelativeDate,
+  AuditLogSection,
+} from '../utils/auditParser';
 
 interface ProjectHistorySectionProps {
   folderId: number;
@@ -40,6 +48,11 @@ export const ProjectHistorySection: React.FC<ProjectHistorySectionProps> = ({ fo
   const [hasMoreLogs, setHasMoreLogs] = useState(false);
 
   const pageRef = useRef(0);
+
+  // Agrupación memoizada bajo cabeceras de fechas relativas: "Hoy", "Ayer", "La semana pasada"
+  const groupedSections: AuditLogSection[] = useMemo(() => {
+    return groupAuditLogsByRelativeDate(logs);
+  }, [logs]);
 
   // Animación del chevron con Reanimated
   const chevronRotation = useSharedValue(0); // 0 = colapsado (-90 deg), 1 = expandido (0 deg)
@@ -129,6 +142,12 @@ export const ProjectHistorySection: React.FC<ProjectHistorySectionProps> = ({ fo
           text: 'text-emerald-700',
           icon: <PlusCircle size={11} color="#059669" />,
         };
+      case 'RESTORE':
+        return {
+          bg: 'bg-teal-50 border-teal-200',
+          text: 'text-teal-700',
+          icon: <RotateCcw size={11} color="#0D9488" />,
+        };
       case 'STATUS':
         return {
           bg: 'bg-blue-50 border-blue-200',
@@ -183,7 +202,7 @@ export const ProjectHistorySection: React.FC<ProjectHistorySectionProps> = ({ fo
               )}
             </View>
             <Text className="text-[11px] text-slate-400 mt-0.5">
-              Auditoría cronológica de este proyecto
+              Agrupado dinámicamente (Hoy, Ayer, La semana pasada)
             </Text>
           </View>
         </View>
@@ -205,7 +224,7 @@ export const ProjectHistorySection: React.FC<ProjectHistorySectionProps> = ({ fo
         </View>
       </TouchableOpacity>
 
-      {/* Contenido Expandible: Lazy Loading + Lista de Registros */}
+      {/* Contenido Expandible: Lazy Loading + SectionList agrupada con useMemo */}
       {isExpanded && (
         <View className="p-4">
           {isLoading ? (
@@ -215,7 +234,7 @@ export const ProjectHistorySection: React.FC<ProjectHistorySectionProps> = ({ fo
                 Consultando eventos en SQLite...
               </Text>
             </View>
-          ) : logs.length === 0 ? (
+          ) : groupedSections.length === 0 ? (
             <View className="py-6 items-center justify-center">
               <Text className="text-xs text-slate-400 font-medium text-center">
                 No hay actividad registrada en este proyecto aún.
@@ -226,42 +245,61 @@ export const ProjectHistorySection: React.FC<ProjectHistorySectionProps> = ({ fo
             </View>
           ) : (
             <View>
-              {/* Renderizado de Lista optimizado (sin scroll interno para no colisionar con ScrollView padre) */}
-              {logs.map((log) => {
-                const parsed = parseAuditLogEntry(log);
-                const style = getBadgeStyle(parsed.badgeType);
-
-                return (
-                  <View
-                    key={log.id}
-                    className="p-3 mb-2 rounded-2xl bg-slate-50 border border-slate-200/70"
-                  >
-                    <View className="flex-row items-center justify-between mb-1">
-                      <View className={`flex-row items-center px-2 py-0.5 rounded-md border ${style.bg}`}>
-                        {style.icon}
-                        <Text className={`text-[10px] font-bold tracking-wide ml-1 ${style.text}`}>
-                          {parsed.badgeLabel}
-                        </Text>
-                      </View>
-                      <Text className="text-[10px] text-slate-400">{log.timestamp}</Text>
-                    </View>
-
-                    <Text className="text-xs font-bold text-slate-800 mt-0.5" numberOfLines={1}>
-                      {parsed.title}
-                    </Text>
-
-                    <Text className="text-xs text-slate-600 mt-0.5 leading-relaxed">
-                      {parsed.summary}
-                    </Text>
-
-                    {Boolean(parsed.detail) && (
-                      <Text className="text-[10px] text-slate-400 mt-0.5 font-medium">
-                        {parsed.detail}
+              <SectionList
+                sections={groupedSections}
+                keyExtractor={(item) => item.id.toString()}
+                scrollEnabled={false}
+                stickySectionHeadersEnabled={false}
+                renderSectionHeader={({ section }) => (
+                  <View className="flex-row items-center justify-between bg-slate-100/90 px-3 py-1.5 rounded-xl mb-2 mt-1 border border-slate-200/60">
+                    <View className="flex-row items-center">
+                      <CalendarClock size={12} color="#64748B" />
+                      <Text className="text-xs font-bold text-slate-700 ml-1.5">
+                        {section.title}
                       </Text>
-                    )}
+                    </View>
+                    <Text className="text-[10px] font-bold text-slate-500">
+                      {section.data.length} evento{section.data.length === 1 ? '' : 's'}
+                    </Text>
                   </View>
-                );
-              })}
+                )}
+                renderItem={({ item: log }) => {
+                  const parsed = parseAuditLogEntry(log);
+                  const style = getBadgeStyle(parsed.badgeType);
+
+                  return (
+                    <View className="p-3 mb-2 rounded-2xl bg-slate-50 border border-slate-200/70">
+                      <View className="flex-row items-center justify-between mb-1">
+                        <View
+                          className={`flex-row items-center px-2 py-0.5 rounded-md border ${style.bg}`}
+                        >
+                          {style.icon}
+                          <Text
+                            className={`text-[10px] font-bold tracking-wide ml-1 ${style.text}`}
+                          >
+                            {parsed.badgeLabel}
+                          </Text>
+                        </View>
+                        <Text className="text-[10px] text-slate-400">{log.timestamp}</Text>
+                      </View>
+
+                      <Text className="text-xs font-bold text-slate-800 mt-0.5" numberOfLines={1}>
+                        {parsed.title}
+                      </Text>
+
+                      <Text className="text-xs text-slate-600 mt-0.5 leading-relaxed">
+                        {parsed.summary}
+                      </Text>
+
+                      {Boolean(parsed.detail) && (
+                        <Text className="text-[10px] text-slate-400 mt-0.5 font-medium">
+                          {parsed.detail}
+                        </Text>
+                      )}
+                    </View>
+                  );
+                }}
+              />
 
               {/* Botón de Paginación: Cargar más registros */}
               {hasMoreLogs && (
