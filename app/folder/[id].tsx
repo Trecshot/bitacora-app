@@ -50,6 +50,8 @@ import { CreateTaskModal } from '../../src/components/CreateTaskModal';
 import { DebugTelemetry } from '../../src/components/DebugTelemetry';
 import { ProjectContextSection } from '../../src/components/ProjectContextSection';
 import { ProjectHistorySection } from '../../src/components/ProjectHistorySection';
+import { useTheme } from '../../src/theme/ThemeContext';
+import { ThemeSelectorPill } from '../../src/components/ThemeSelectorPill';
 
 type FilterTab = 'ALL' | 'TODO' | 'IN_PROGRESS' | 'DONE';
 type ViewMode = 'KANBAN' | 'LIST';
@@ -74,6 +76,7 @@ export default function FolderDetailScreen() {
   const router = useRouter();
   const folderId = Number(id);
   const breadcrumbScrollRef = useRef<React.ComponentRef<typeof ScrollView>>(null);
+  const { theme } = useTheme();
 
   const [folder, setFolder] = useState<Folder | null>(null);
   const [breadcrumbs, setBreadcrumbs] = useState<Folder[]>([]);
@@ -236,7 +239,7 @@ export default function FolderDetailScreen() {
   const staleCount = folder?.stale_task_count ?? 0;
 
   return (
-    <SafeAreaView className="flex-1 bg-slate-50">
+    <SafeAreaView className="flex-1" style={{ backgroundColor: theme.colors.background }}>
       {/* Cabecera reemplazada por Navegación por Migas de Pan (Breadcrumbs) en ScrollView horizontal */}
       <Stack.Screen
         options={{
@@ -253,37 +256,48 @@ export default function FolderDetailScreen() {
             >
               <TouchableOpacity
                 onPress={() => router.navigate('/')}
-                className="flex-row items-center bg-slate-100 px-2.5 py-1.5 rounded-xl border border-slate-200"
+                className="flex-row items-center px-2.5 py-1.5 rounded-xl border"
+                style={{
+                  backgroundColor: theme.colors.surfaceElevated,
+                  borderColor: theme.colors.border,
+                }}
               >
-                <Home size={13} color="#2563EB" />
-                <Text className="text-xs font-bold text-slate-700 ml-1">Proyectos</Text>
+                <Home size={13} color={theme.colors.accent} />
+                <Text
+                  className="text-xs font-bold ml-1"
+                  style={{ color: theme.colors.text }}
+                >
+                  Proyectos
+                </Text>
               </TouchableOpacity>
 
               {breadcrumbs.map((crumb, idx) => {
                 const isLast = idx === breadcrumbs.length - 1;
-                const crumbColor = crumb.color || '#2563EB';
+                const crumbColor = crumb.color || theme.colors.accent;
                 return (
                   <View key={crumb.id} className="flex-row items-center">
                     <View className="mx-1">
-                      <ChevronRight size={14} color="#94A3B8" />
+                      <ChevronRight size={14} color={theme.colors.textMuted} />
                     </View>
                     <TouchableOpacity
                       disabled={isLast}
                       onPress={() => router.push(`/folder/${crumb.id}`)}
-                      className={`flex-row items-center px-2.5 py-1.5 rounded-xl border ${
-                        isLast
-                          ? 'bg-blue-50 border-blue-200'
-                          : 'bg-white border-slate-200'
-                      }`}
+                      className="flex-row items-center px-2.5 py-1.5 rounded-xl border"
+                      style={{
+                        backgroundColor: isLast ? theme.colors.surfaceElevated : theme.colors.surface,
+                        borderColor: isLast ? theme.colors.accent : theme.colors.border,
+                      }}
                     >
                       <View
                         className="w-2 h-2 rounded-full mr-1.5"
                         style={{ backgroundColor: crumbColor }}
                       />
                       <Text
-                        className={`text-xs ${
-                          isLast ? 'font-bold text-blue-700' : 'font-semibold text-slate-600'
-                        }`}
+                        className="text-xs"
+                        style={{
+                          fontWeight: isLast ? '700' : '600',
+                          color: isLast ? theme.colors.accent : theme.colors.textSecondary,
+                        }}
                         numberOfLines={1}
                       >
                         {crumb.name}
@@ -299,25 +313,36 @@ export default function FolderDetailScreen() {
 
       {/* Banner flotante de Deshacer Borrado Lógico (Soft Delete) */}
       {lastDeletedTask && lastDeletedTask.folder_id === folderId && (
-        <View className="mx-4 mt-2 bg-slate-900 px-3.5 py-2.5 rounded-2xl flex-row items-center justify-between shadow-md">
+        <View
+          className="mx-4 mt-2 px-3.5 py-2.5 rounded-2xl flex-row items-center justify-between border"
+          style={{
+            backgroundColor: theme.colors.surfaceElevated,
+            borderColor: theme.colors.border,
+          }}
+        >
           <View className="flex-1 mr-2">
-            <Text className="text-xs font-semibold text-white" numberOfLines={1}>
+            <Text
+              className="text-xs font-semibold"
+              style={{ color: theme.colors.text }}
+              numberOfLines={1}
+            >
               En papelera: &quot;{lastDeletedTask.title}&quot;
             </Text>
-            <Text className="text-[10px] text-slate-400">
+            <Text className="text-[10px]" style={{ color: theme.colors.textMuted }}>
               Registro conservado en auditoría (Soft Delete)
             </Text>
           </View>
           <View className="flex-row items-center">
             <TouchableOpacity
               onPress={() => restoreTaskOptimistic(lastDeletedTask.id)}
-              className="flex-row items-center bg-emerald-600 px-3 py-1.5 rounded-xl mr-1.5"
+              className="flex-row items-center px-3 py-1.5 rounded-xl mr-1.5"
+              style={{ backgroundColor: theme.colors.success }}
             >
               <RotateCcw size={12} color="#FFFFFF" />
               <Text className="text-xs font-bold text-white ml-1">Deshacer</Text>
             </TouchableOpacity>
             <TouchableOpacity onPress={dismissLastDeleted} className="p-1">
-              <X size={15} color="#94A3B8" />
+              <X size={15} color={theme.colors.textMuted} />
             </TouchableOpacity>
           </View>
         </View>
@@ -327,11 +352,16 @@ export default function FolderDetailScreen() {
         className="flex-1 px-4 pt-3"
         showsVerticalScrollIndicator={false}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#2563EB']} />
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            colors={[theme.colors.accent]}
+            tintColor={theme.colors.accent}
+          />
         }
       >
         {/* Cabecera de la Carpeta */}
-        <View className="bg-white rounded-3xl p-5 mb-4 border border-slate-200/80 shadow-sm">
+        <View style={[theme.cardStyle, { padding: 18, marginBottom: 16 }]}>
           <View className="flex-row items-center justify-between mb-3">
             <View className="flex-row items-center flex-1 mr-2">
               <TouchableOpacity
@@ -339,67 +369,109 @@ export default function FolderDetailScreen() {
                 delayLongPress={800}
                 onLongPress={() => setSecretDevMenuUnlocked((prev) => !prev)}
                 className="w-12 h-12 rounded-2xl items-center justify-center mr-3"
-                style={{ backgroundColor: `${folder?.color || '#3B82F6'}18` }}
+                style={{ backgroundColor: `${folder?.color || theme.colors.accent}18` }}
               >
-                <FolderIcon size={24} color={folder?.color || '#3B82F6'} />
+                <FolderIcon size={24} color={folder?.color || theme.colors.accent} />
               </TouchableOpacity>
               <View className="flex-1">
-                <Text className="text-xl font-bold text-slate-800" numberOfLines={1}>
+                <Text
+                  className="text-xl font-bold"
+                  style={{ color: theme.colors.text }}
+                  numberOfLines={1}
+                >
                   {folder?.name || 'Cargando...'}
                 </Text>
-                <Text className="text-xs text-slate-400 mt-0.5" numberOfLines={1}>
+                <Text
+                  className="text-xs mt-0.5"
+                  style={{ color: theme.colors.textMuted }}
+                  numberOfLines={1}
+                >
                   {breadcrumbs.map((b) => b.name).join(' / ') || 'Raíz'}
                   {folder?.depth ? ` • Nivel ${folder.depth}` : ''}
                 </Text>
               </View>
             </View>
 
-            {/* Botón de Papelera de Reciclaje (Soft Deletes) */}
-            <TouchableOpacity
-              onPress={() => setShowRecycleBin((prev) => !prev)}
-              className={`flex-row items-center px-2.5 py-1.5 rounded-xl border ${
-                showRecycleBin || deletedTasks.length > 0
-                  ? 'bg-rose-50 border-rose-200'
-                  : 'bg-slate-50 border-slate-200'
-              }`}
-            >
-              <Trash2
-                size={13}
-                color={showRecycleBin || deletedTasks.length > 0 ? '#E11D48' : '#64748B'}
-              />
-              <Text
-                className={`text-xs font-bold ml-1 ${
-                  showRecycleBin || deletedTasks.length > 0 ? 'text-rose-700' : 'text-slate-600'
-                }`}
+            <View className="flex-row items-center">
+              {/* Botón de Papelera de Reciclaje (Soft Deletes) */}
+              <TouchableOpacity
+                onPress={() => setShowRecycleBin((prev) => !prev)}
+                className="flex-row items-center px-2.5 py-1.5 rounded-xl border mr-2"
+                style={{
+                  backgroundColor:
+                    showRecycleBin || deletedTasks.length > 0
+                      ? 'rgba(225, 29, 72, 0.12)'
+                      : theme.colors.surfaceElevated,
+                  borderColor:
+                    showRecycleBin || deletedTasks.length > 0
+                      ? 'rgba(225, 29, 72, 0.3)'
+                      : theme.colors.border,
+                }}
               >
-                Papelera ({deletedTasks.length})
-              </Text>
-            </TouchableOpacity>
+                <Trash2
+                  size={13}
+                  color={
+                    showRecycleBin || deletedTasks.length > 0
+                      ? '#E11D48'
+                      : theme.colors.textMuted
+                  }
+                />
+                <Text
+                  className="text-xs font-bold ml-1"
+                  style={{
+                    color:
+                      showRecycleBin || deletedTasks.length > 0
+                        ? '#E11D48'
+                        : theme.colors.textSecondary,
+                  }}
+                >
+                  Papelera ({deletedTasks.length})
+                </Text>
+              </TouchableOpacity>
+
+              {/* Selector Rápido de Tema Visual */}
+              <ThemeSelectorPill />
+            </View>
           </View>
 
           {/* Resumen de Estado del Tablero Kanban + Métrica de Estancamiento */}
-          <View className="flex-row justify-between bg-slate-50 p-2.5 rounded-2xl border border-slate-100">
+          <View
+            className="flex-row justify-between p-2.5 rounded-2xl border"
+            style={{
+              backgroundColor: theme.colors.surfaceElevated,
+              borderColor: theme.colors.border,
+            }}
+          >
             <View className="flex-1 items-center py-1">
-              <Text className="text-xs text-slate-500 font-medium">Por Hacer</Text>
-              <Text className="text-base font-bold text-slate-700">{countTodo}</Text>
+              <Text className="text-xs font-medium" style={{ color: theme.colors.textMuted }}>
+                Por Hacer
+              </Text>
+              <Text className="text-base font-bold" style={{ color: theme.colors.text }}>
+                {countTodo}
+              </Text>
             </View>
-            <View className="w-[1px] bg-slate-200 my-1" />
+            <View className="w-[1px] my-1" style={{ backgroundColor: theme.colors.border }} />
             <View className="flex-1 items-center py-1">
-              <Text className="text-xs text-amber-600 font-medium">En Progreso</Text>
-              <Text className="text-base font-bold text-amber-700">{countInProgress}</Text>
+              <Text className="text-xs text-amber-500 font-medium">En Progreso</Text>
+              <Text className="text-base font-bold text-amber-500">{countInProgress}</Text>
             </View>
-            <View className="w-[1px] bg-slate-200 my-1" />
+            <View className="w-[1px] my-1" style={{ backgroundColor: theme.colors.border }} />
             <View className="flex-1 items-center py-1">
-              <Text className="text-xs text-emerald-600 font-medium">Completadas</Text>
-              <Text className="text-base font-bold text-emerald-700">{countDone}</Text>
+              <Text className="text-xs font-medium" style={{ color: theme.colors.success }}>
+                Completadas
+              </Text>
+              <Text className="text-base font-bold" style={{ color: theme.colors.success }}>
+                {countDone}
+              </Text>
             </View>
-            <View className="w-[1px] bg-slate-200 my-1" />
+            <View className="w-[1px] my-1" style={{ backgroundColor: theme.colors.border }} />
             <View className="flex-1 items-center py-1">
-              <Text className="text-xs text-rose-600 font-medium">Estancadas</Text>
+              <Text className="text-xs text-rose-500 font-medium">Estancadas</Text>
               <Text
-                className={`text-base font-bold ${
-                  staleCount > 0 ? 'text-rose-600' : 'text-slate-400'
-                }`}
+                className="text-base font-bold"
+                style={{
+                  color: staleCount > 0 ? '#E11D48' : theme.colors.textMuted,
+                }}
               >
                 {staleCount}
               </Text>
@@ -407,9 +479,9 @@ export default function FolderDetailScreen() {
           </View>
 
           {staleCount > 0 && (
-            <View className="mt-2.5 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 flex-row items-center">
+            <View className="mt-2.5 bg-amber-500/10 border border-amber-500/30 rounded-xl px-3 py-2 flex-row items-center">
               <AlertTriangle size={14} color="#D97706" />
-              <Text className="text-[11px] font-semibold text-amber-800 ml-2 flex-1">
+              <Text className="text-[11px] font-semibold text-amber-600 ml-2 flex-1">
                 {staleCount} tarea{staleCount === 1 ? '' : 's'} en &quot;En Progreso&quot; lleva
                 {staleCount === 1 ? '' : 'n'} más de 7 días sin actualizarse.
               </Text>
@@ -426,47 +498,70 @@ export default function FolderDetailScreen() {
 
         {/* Módulo Expandible: Papelera de Reciclaje (Soft Deletes) */}
         {showRecycleBin && (
-          <View className="bg-white rounded-3xl p-4 mb-4 border border-rose-200 shadow-sm">
+          <View
+            style={[
+              theme.cardStyle,
+              { borderColor: 'rgba(225, 29, 72, 0.3)', padding: 16, marginBottom: 16 },
+            ]}
+          >
             <View className="flex-row items-center justify-between mb-2.5">
               <View className="flex-row items-center">
                 <Trash2 size={15} color="#E11D48" />
-                <Text className="text-sm font-bold text-slate-800 ml-1.5">
+                <Text
+                  className="text-sm font-bold ml-1.5"
+                  style={{ color: theme.colors.text }}
+                >
                   Papelera de Reciclaje ({deletedTasks.length})
                 </Text>
               </View>
               <TouchableOpacity onPress={() => setShowRecycleBin(false)}>
-                <X size={16} color="#94A3B8" />
+                <X size={16} color={theme.colors.textMuted} />
               </TouchableOpacity>
             </View>
             {deletedTasks.length === 0 ? (
-              <Text className="text-xs text-slate-400 py-3 text-center">
+              <Text
+                className="text-xs py-3 text-center"
+                style={{ color: theme.colors.textMuted }}
+              >
                 La papelera de esta carpeta está vacía.
               </Text>
             ) : (
               deletedTasks.map((dt) => (
                 <View
                   key={dt.id}
-                  className="flex-row items-center justify-between bg-slate-50 p-3 rounded-2xl mb-2 border border-slate-200/70"
+                  className="flex-row items-center justify-between p-3 rounded-2xl mb-2 border"
+                  style={{
+                    backgroundColor: theme.colors.surfaceElevated,
+                    borderColor: theme.colors.border,
+                  }}
                 >
                   <View className="flex-1 mr-2">
-                    <Text className="text-xs font-bold text-slate-700 line-through">
+                    <Text
+                      className="text-xs font-bold line-through"
+                      style={{ color: theme.colors.textSecondary }}
+                    >
                       {dt.title}
                     </Text>
-                    <Text className="text-[10px] text-slate-400 mt-0.5">
+                    <Text
+                      className="text-[10px] mt-0.5"
+                      style={{ color: theme.colors.textMuted }}
+                    >
                       Estado previo: {dt.status} • Prioridad: {dt.priority}
                     </Text>
                   </View>
                   <View className="flex-row items-center">
                     <TouchableOpacity
                       onPress={() => restoreTaskOptimistic(dt.id)}
-                      className="flex-row items-center bg-emerald-600 px-2.5 py-1.5 rounded-xl mr-1.5"
+                      className="flex-row items-center px-2.5 py-1.5 rounded-xl mr-1.5"
+                      style={{ backgroundColor: theme.colors.success }}
                     >
                       <RotateCcw size={12} color="#FFFFFF" />
                       <Text className="text-[11px] font-bold text-white ml-1">Restaurar</Text>
                     </TouchableOpacity>
                     <TouchableOpacity
                       onPress={() => hardDeleteTaskOptimistic(dt.id)}
-                      className="p-1.5 rounded-xl bg-rose-100"
+                      className="p-1.5 rounded-xl"
+                      style={{ backgroundColor: 'rgba(225, 29, 72, 0.15)' }}
                     >
                       <Trash2 size={13} color="#E11D48" />
                     </TouchableOpacity>
@@ -479,6 +574,7 @@ export default function FolderDetailScreen() {
 
         {/* Sección Expandible: Bloque de Contexto / Idea del Proyecto con Markdown y Edición In-Situ */}
         <ProjectContextSection
+          key={`context-${folderId}`}
           folderId={folderId}
           initialDescription={folder?.description}
           onDescriptionSaved={(newDesc) => {
@@ -487,23 +583,35 @@ export default function FolderDetailScreen() {
         />
 
         {/* Bloque de Historial de Actividad Acotado (SectionList + Fechas Relativas) */}
-        <ProjectHistorySection folderId={folderId} />
+        <ProjectHistorySection key={`history-${folderId}`} folderId={folderId} />
 
         {/* Sección: Subcarpetas (con Herencia Visual del Color Padre) */}
         <View className="mb-4">
           <View className="flex-row items-center justify-between mb-2">
             <View className="flex-row items-center">
-              <Layers size={16} color="#64748B" />
-              <Text className="text-sm font-bold text-slate-700 ml-1.5">
+              <Layers size={16} color={theme.colors.textMuted} />
+              <Text
+                className="text-sm font-bold ml-1.5"
+                style={{ color: theme.colors.text }}
+              >
                 Subcarpetas ({subfolders.length})
               </Text>
             </View>
             <TouchableOpacity
               onPress={() => setIsFolderModalOpen(true)}
-              className="flex-row items-center bg-blue-50 px-2.5 py-1 rounded-lg border border-blue-200"
+              className="flex-row items-center px-2.5 py-1 rounded-lg border"
+              style={{
+                backgroundColor: theme.colors.surfaceElevated,
+                borderColor: theme.colors.border,
+              }}
             >
-              <FolderPlus size={13} color="#2563EB" />
-              <Text className="text-xs font-semibold text-blue-700 ml-1">Nueva Subcarpeta</Text>
+              <FolderPlus size={13} color={theme.colors.accent} />
+              <Text
+                className="text-xs font-semibold ml-1"
+                style={{ color: theme.colors.accent }}
+              >
+                Nueva Subcarpeta
+              </Text>
             </TouchableOpacity>
           </View>
 
@@ -521,8 +629,11 @@ export default function FolderDetailScreen() {
         <View className="mb-6">
           <View className="flex-row items-center justify-between mb-2.5">
             <View className="flex-row items-center">
-              <ListTodo size={16} color="#64748B" />
-              <Text className="text-sm font-bold text-slate-700 ml-1.5">
+              <ListTodo size={16} color={theme.colors.textMuted} />
+              <Text
+                className="text-sm font-bold ml-1.5"
+                style={{ color: theme.colors.text }}
+              >
                 Tablero Kanban ({criteriaFilteredTasks.length}/{tasks.length})
               </Text>
             </View>
@@ -531,79 +642,119 @@ export default function FolderDetailScreen() {
               {/* Botón de Filtros Multicriterio en Memoria */}
               <TouchableOpacity
                 onPress={() => setShowFiltersPanel((prev) => !prev)}
-                className={`flex-row items-center px-2.5 py-1.5 rounded-xl border mr-2 ${
-                  hasActiveFilters || showFiltersPanel
-                    ? 'bg-blue-600 border-blue-600'
-                    : 'bg-white border-slate-200'
-                }`}
+                className="flex-row items-center px-2.5 py-1.5 rounded-xl border mr-2"
+                style={{
+                  backgroundColor:
+                    hasActiveFilters || showFiltersPanel
+                      ? theme.colors.accent
+                      : theme.colors.surfaceElevated,
+                  borderColor:
+                    hasActiveFilters || showFiltersPanel
+                      ? theme.colors.accent
+                      : theme.colors.border,
+                }}
               >
                 <Filter
                   size={13}
-                  color={hasActiveFilters || showFiltersPanel ? '#FFFFFF' : '#475569'}
+                  color={
+                    hasActiveFilters || showFiltersPanel
+                      ? theme.colors.accentText
+                      : theme.colors.textSecondary
+                  }
                 />
                 <Text
-                  className={`text-xs font-semibold ml-1 ${
-                    hasActiveFilters || showFiltersPanel ? 'text-white' : 'text-slate-700'
-                  }`}
+                  className="text-xs font-semibold ml-1"
+                  style={{
+                    color:
+                      hasActiveFilters || showFiltersPanel
+                        ? theme.colors.accentText
+                        : theme.colors.text,
+                  }}
                 >
                   Filtros{activeFilterCount > 0 ? ` (${activeFilterCount})` : ''}
                 </Text>
               </TouchableOpacity>
 
-              <View className="flex-row bg-slate-200/80 p-0.5 rounded-xl mr-2">
+              <View
+                className="flex-row p-0.5 rounded-xl mr-2 border"
+                style={{
+                  backgroundColor: theme.colors.surfaceElevated,
+                  borderColor: theme.colors.border,
+                }}
+              >
                 <TouchableOpacity
                   onPress={() => setViewMode('KANBAN')}
-                  className={`p-1.5 rounded-lg ${
-                    viewMode === 'KANBAN' ? 'bg-white shadow-sm' : ''
-                  }`}
+                  className="p-1.5 rounded-lg"
+                  style={{
+                    backgroundColor: viewMode === 'KANBAN' ? theme.colors.surface : 'transparent',
+                  }}
                 >
                   <KanbanIcon
                     size={15}
-                    color={viewMode === 'KANBAN' ? '#1E293B' : '#64748B'}
+                    color={viewMode === 'KANBAN' ? theme.colors.text : theme.colors.textMuted}
                   />
                 </TouchableOpacity>
                 <TouchableOpacity
                   onPress={() => setViewMode('LIST')}
-                  className={`p-1.5 rounded-lg ${
-                    viewMode === 'LIST' ? 'bg-white shadow-sm' : ''
-                  }`}
+                  className="p-1.5 rounded-lg"
+                  style={{
+                    backgroundColor: viewMode === 'LIST' ? theme.colors.surface : 'transparent',
+                  }}
                 >
                   <LayoutList
                     size={15}
-                    color={viewMode === 'LIST' ? '#1E293B' : '#64748B'}
+                    color={viewMode === 'LIST' ? theme.colors.text : theme.colors.textMuted}
                   />
                 </TouchableOpacity>
               </View>
 
               <TouchableOpacity
                 onPress={() => openCreateTaskForStatus('TODO')}
-                className="flex-row items-center bg-emerald-600 px-3 py-1.5 rounded-xl shadow-sm shadow-emerald-600/20"
+                className="flex-row items-center px-3 py-1.5 rounded-xl"
+                style={{ backgroundColor: theme.colors.accent }}
               >
-                <Plus size={14} color="#FFFFFF" />
-                <Text className="text-xs font-semibold text-white ml-1">Nueva</Text>
+                <Plus size={14} color={theme.colors.accentText} />
+                <Text
+                  className="text-xs font-semibold ml-1"
+                  style={{ color: theme.colors.accentText }}
+                >
+                  Nueva
+                </Text>
               </TouchableOpacity>
             </View>
           </View>
 
           {/* Panel de Filtrado Multicriterio Apilable en Memoria (Zustand) */}
           {(showFiltersPanel || hasActiveFilters) && (
-            <View className="bg-white rounded-2xl p-3.5 mb-3 border border-slate-200/90 shadow-sm">
+            <View style={[theme.cardStyle, { padding: 14, marginBottom: 12 }]}>
               <View className="flex-row items-center justify-between mb-2">
-                <Text className="text-xs font-bold text-slate-700">
+                <Text
+                  className="text-xs font-bold"
+                  style={{ color: theme.colors.text }}
+                >
                   Filtrado Multicriterio en Memoria (Prioridad + Fecha Límite)
                 </Text>
                 {hasActiveFilters && (
                   <TouchableOpacity
                     onPress={clearFilters}
-                    className="bg-slate-100 px-2 py-0.5 rounded-md"
+                    className="px-2 py-0.5 rounded-md"
+                    style={{ backgroundColor: theme.colors.surfaceElevated }}
                   >
-                    <Text className="text-[10px] font-bold text-blue-600">Limpiar filtros</Text>
+                    <Text
+                      className="text-[10px] font-bold"
+                      style={{ color: theme.colors.accent }}
+                    >
+                      Limpiar filtros
+                    </Text>
                   </TouchableOpacity>
                 )}
               </View>
 
               {/* Filtros apilables por Prioridad */}
-              <Text className="text-[11px] font-semibold text-slate-500 mb-1.5">
+              <Text
+                className="text-[11px] font-semibold mb-1.5"
+                style={{ color: theme.colors.textMuted }}
+              >
                 Prioridad (apilable):
               </Text>
               <View className="flex-row flex-wrap mb-2.5">
@@ -613,14 +764,29 @@ export default function FolderDetailScreen() {
                     <TouchableOpacity
                       key={pf.id}
                       onPress={() => togglePriorityFilter(pf.id)}
-                      className={`px-3 py-1 rounded-xl border mr-2 mb-1 ${
-                        isSelected ? pf.activeClass : 'bg-slate-50 border-slate-200'
-                      }`}
+                      className="px-3 py-1 rounded-xl border mr-2 mb-1"
+                      style={{
+                        backgroundColor: isSelected
+                          ? pf.id === 'HIGH'
+                            ? '#E11D48'
+                            : pf.id === 'MEDIUM'
+                            ? '#D97706'
+                            : '#2563EB'
+                          : theme.colors.surfaceElevated,
+                        borderColor: isSelected
+                          ? pf.id === 'HIGH'
+                            ? '#E11D48'
+                            : pf.id === 'MEDIUM'
+                            ? '#D97706'
+                            : '#2563EB'
+                          : theme.colors.border,
+                      }}
                     >
                       <Text
-                        className={`text-xs font-semibold ${
-                          isSelected ? 'text-white' : 'text-slate-600'
-                        }`}
+                        className="text-xs font-semibold"
+                        style={{
+                          color: isSelected ? '#FFFFFF' : theme.colors.textSecondary,
+                        }}
                       >
                         {pf.label}
                       </Text>
@@ -631,8 +797,11 @@ export default function FolderDetailScreen() {
 
               {/* Filtro por Fecha Límite */}
               <View className="flex-row items-center mb-1.5">
-                <Calendar size={11} color="#64748B" />
-                <Text className="text-[11px] font-semibold text-slate-500 ml-1">
+                <Calendar size={11} color={theme.colors.textMuted} />
+                <Text
+                  className="text-[11px] font-semibold ml-1"
+                  style={{ color: theme.colors.textMuted }}
+                >
                   Fecha límite:
                 </Text>
               </View>
@@ -643,16 +812,23 @@ export default function FolderDetailScreen() {
                     <TouchableOpacity
                       key={df.id}
                       onPress={() => setDueDateFilter(df.id)}
-                      className={`px-2.5 py-1 rounded-xl border mr-1.5 ${
-                        isSelected
-                          ? 'bg-slate-800 border-slate-800'
-                          : 'bg-slate-50 border-slate-200'
-                      }`}
+                      className="px-2.5 py-1 rounded-xl border mr-1.5"
+                      style={{
+                        backgroundColor: isSelected
+                          ? theme.colors.accent
+                          : theme.colors.surfaceElevated,
+                        borderColor: isSelected
+                          ? theme.colors.accent
+                          : theme.colors.border,
+                      }}
                     >
                       <Text
-                        className={`text-[11px] font-semibold ${
-                          isSelected ? 'text-white' : 'text-slate-600'
-                        }`}
+                        className="text-[11px] font-semibold"
+                        style={{
+                          color: isSelected
+                            ? theme.colors.accentText
+                            : theme.colors.textSecondary,
+                        }}
                       >
                         {df.label}
                       </Text>
@@ -672,7 +848,13 @@ export default function FolderDetailScreen() {
             />
           ) : (
             <View>
-              <View className="flex-row space-x-1.5 bg-slate-200/60 p-1 rounded-xl mb-3">
+              <View
+                className="flex-row p-1 rounded-xl mb-3 border"
+                style={{
+                  backgroundColor: theme.colors.surfaceElevated,
+                  borderColor: theme.colors.border,
+                }}
+              >
                 {[
                   { id: 'ALL', label: 'Todas' },
                   { id: 'TODO', label: 'Por Hacer' },
@@ -682,14 +864,20 @@ export default function FolderDetailScreen() {
                   <TouchableOpacity
                     key={tab.id}
                     onPress={() => setActiveTab(tab.id as FilterTab)}
-                    className={`flex-1 py-1.5 rounded-lg items-center ${
-                      activeTab === tab.id ? 'bg-white shadow-sm' : ''
-                    }`}
+                    className="flex-1 py-1.5 rounded-lg items-center"
+                    style={{
+                      backgroundColor:
+                        activeTab === tab.id ? theme.colors.surface : 'transparent',
+                    }}
                   >
                     <Text
-                      className={`text-[11px] font-bold ${
-                        activeTab === tab.id ? 'text-slate-800' : 'text-slate-500'
-                      }`}
+                      className="text-[11px] font-bold"
+                      style={{
+                        color:
+                          activeTab === tab.id
+                            ? theme.colors.text
+                            : theme.colors.textMuted,
+                      }}
                     >
                       {tab.label}
                     </Text>
@@ -698,9 +886,17 @@ export default function FolderDetailScreen() {
               </View>
 
               {listFilteredTasks.length === 0 ? (
-                <View className="py-10 bg-white rounded-2xl border border-slate-100 items-center justify-center p-4">
-                  <CheckCircle2 size={32} color="#CBD5E1" />
-                  <Text className="text-sm font-semibold text-slate-600 mt-2">
+                <View
+                  style={[
+                    theme.cardStyle,
+                    { padding: 32, alignItems: 'center', justifyContent: 'center' },
+                  ]}
+                >
+                  <CheckCircle2 size={32} color={theme.colors.textMuted} />
+                  <Text
+                    className="text-sm font-semibold mt-2"
+                    style={{ color: theme.colors.textSecondary }}
+                  >
                     No hay tareas que coincidan con los filtros
                   </Text>
                 </View>

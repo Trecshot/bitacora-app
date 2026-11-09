@@ -2,17 +2,18 @@ import React, { useState, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
-  FlatList,
   TextInput,
   RefreshControl,
+  TouchableOpacity,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
-import { Search, StickyNote } from 'lucide-react-native';
+import { Search, FileText, X, Zap } from 'lucide-react-native';
+import { FlashList, FlashListProps } from '@shopify/flash-list';
 import {
   getMainNoteCategories,
   getSubcategories,
   getNotes,
+  searchNotes,
   createNoteCategory,
   toggleNotePinned,
   deleteNote,
@@ -23,59 +24,91 @@ import { CategoryPills } from './CategoryPills';
 import { NoteCard } from './NoteCard';
 import { FloatingActionButton } from './FloatingActionButton';
 import { CreateCategoryModal } from './CreateCategoryModal';
+import { useTheme } from '../theme/ThemeContext';
+
+/**
+ * Componente MasonryFlashList (Shopify)
+ * Activa la virtualización asimétrica de alto rendimiento en dos columnas con cálculo de
+ * pre-renderizado fuera de pantalla para mantener 60 FPS estables.
+ */
+export const MasonryFlashList = <T,>(props: FlashListProps<T>) => (
+  <FlashList masonry={true} optimizeItemArrangement={true} {...props} />
+);
 
 export const NotesView: React.FC = () => {
   const router = useRouter();
+  const { theme } = useTheme();
 
-  // Estados de Categorías
-  const [mainCategories, setMainCategories] = useState<NoteCategory[]>([]);
-  const [subcategories, setSubcategories] = useState<NoteCategory[]>([]);
+  // Estados de Categorías (Jerarquía)
   const [selectedMainId, setSelectedMainId] = useState<string>('ALL'); // 'ALL' = Pestaña "Todo"
   const [selectedSubId, setSelectedSubId] = useState<string | null>(null);
 
-  // Estados de Notas
-  const [notes, setNotes] = useState<Note[]>([]);
+  // Estados de Búsqueda FTS5 & Refresco
   const [searchQuery, setSearchQuery] = useState('');
   const [refreshing, setRefreshing] = useState(false);
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
 
   // Modal para agregar categoría o subcategoría
   const [isCategoryModalVisible, setIsCategoryModalVisible] = useState(false);
   const [categoryModalParentId, setCategoryModalParentId] = useState<string | null>(null);
 
-  // Carga de datos con sincronización de SQLite
-  const loadData = useCallback(() => {
-    try {
-      // 1. Cargar categorías principales (parent_id IS NULL)
-      const mains = getMainNoteCategories();
-      setMainCategories(mains);
-
-      // 2. Si hay una categoría principal seleccionada, cargar sus subcategorías (Nivel 2)
-      if (selectedMainId !== 'ALL') {
-        const subs = getSubcategories(selectedMainId);
-        setSubcategories(subs);
-      } else {
-        setSubcategories([]);
-      }
-
-      // 3. Ejecutar consulta SQL priorizando: ORDER BY is_pinned DESC, updated_at DESC
-      const activeCategoryId = selectedSubId || (selectedMainId === 'ALL' ? null : selectedMainId);
-      const isParentCategoryWithSubs = selectedSubId === null && selectedMainId !== 'ALL';
-      const fetchedNotes = getNotes(activeCategoryId, isParentCategoryWithSubs);
-      setNotes(fetchedNotes);
-    } catch (e) {
-      console.error('Error cargando notas y categorías:', e);
-    }
-  }, [selectedMainId, selectedSubId]);
+  const reload = useCallback(() => {
+    setRefreshTrigger((prev) => prev + 1);
+  }, []);
 
   useFocusEffect(
     useCallback(() => {
-      loadData();
-    }, [loadData])
+      reload();
+    }, [reload])
   );
+
+  // Derivación de Categorías Principales sincronizadas con SQLite
+  const mainCategories = useMemo<NoteCategory[]>(() => {
+    void refreshTrigger;
+    try {
+      return getMainNoteCategories();
+    } catch (e) {
+      console.error('Error cargando categorías principales:', e);
+      return [];
+    }
+  }, [refreshTrigger]);
+
+  // Derivación de Subcategorías (Nivel 2)
+  const subcategories = useMemo<NoteCategory[]>(() => {
+    void refreshTrigger;
+    if (selectedMainId === 'ALL') return [];
+    try {
+      return getSubcategories(selectedMainId);
+    } catch (e) {
+      console.error('Error cargando subcategorías:', e);
+      return [];
+    }
+  }, [selectedMainId, refreshTrigger]);
+
+  // Derivación de Notas con Motor FTS5 MATCH o recuperación transversal SQLite
+  const notes = useMemo<Note[]>(() => {
+    void refreshTrigger;
+    const activeCategoryId = selectedSubId || (selectedMainId === 'ALL' ? null : selectedMainId);
+    const isParentCategoryWithSubs = selectedSubId === null && selectedMainId !== 'ALL';
+
+    try {
+      if (searchQuery.trim()) {
+        return searchNotes(searchQuery, {
+          categoryId: activeCategoryId,
+          tagId: null,
+          isMainCategoryWithSubs: isParentCategoryWithSubs,
+        });
+      }
+      return getNotes(activeCategoryId, isParentCategoryWithSubs, null);
+    } catch (e) {
+      console.error('Error recuperando notas con FTS5:', e);
+      return [];
+    }
+  }, [selectedMainId, selectedSubId, searchQuery, refreshTrigger]);
 
   const onRefresh = () => {
     setRefreshing(true);
-    loadData();
+    reload();
     setRefreshing(false);
   };
 
@@ -91,7 +124,7 @@ export const NotesView: React.FC = () => {
   const handleTogglePin = (noteId: string) => {
     try {
       toggleNotePinned(noteId);
-      loadData();
+      reload();
     } catch (e) {
       console.error('Error al alternar fijado de nota:', e);
     }
@@ -100,7 +133,7 @@ export const NotesView: React.FC = () => {
   const handleDeleteNote = (noteId: string) => {
     try {
       deleteNote(noteId);
-      loadData();
+      reload();
     } catch (e) {
       console.error('Error al eliminar nota:', e);
     }
@@ -112,7 +145,7 @@ export const NotesView: React.FC = () => {
       if (parentId) {
         setSelectedSubId(newId);
       }
-      loadData();
+      reload();
     } catch (e) {
       console.error('Error al crear categoría:', e);
     }
@@ -128,59 +161,94 @@ export const NotesView: React.FC = () => {
     setIsCategoryModalVisible(true);
   };
 
-  // Filtrado de notas por término de búsqueda si se escribe en el buscador
-  const filteredNotes = useMemo(() => {
-    if (!searchQuery.trim()) return notes;
-    const q = searchQuery.toLowerCase();
-    return notes.filter(
-      (n) => n.title.toLowerCase().includes(q) || n.content.toLowerCase().includes(q)
-    );
-  }, [notes, searchQuery]);
-
   const parentCategoryObj = mainCategories.find((c) => c.id === categoryModalParentId);
 
   return (
-    <SafeAreaView className="flex-1 bg-slate-50">
-      <View className="flex-1">
-        {/* Barra de Búsqueda Rápida de Notas */}
-        <View className="px-4 pt-2 pb-1">
-          <View className="flex-row items-center bg-white px-3.5 py-2.5 rounded-2xl border border-slate-200/80 shadow-sm">
-            <Search size={18} color="#94A3B8" />
-            <TextInput
-              placeholder="Buscar en notas y apuntes..."
-              placeholderTextColor="#94A3B8"
-              value={searchQuery}
-              onChangeText={setSearchQuery}
-              className="flex-1 ml-2 text-sm text-slate-800"
-            />
-          </View>
+    <View className="flex-1" style={{ backgroundColor: theme.colors.background }}>
+      {/* Barra de Búsqueda Rápida de Notas (Indexada con SQLite FTS5 MATCH) */}
+      <View className="px-4 pt-2 pb-1">
+        <View
+          className="flex-row items-center px-3.5 py-2.5 rounded-2xl border"
+          style={{
+            backgroundColor: theme.colors.surface,
+            borderColor: theme.colors.border,
+          }}
+        >
+          <Search
+            size={18}
+            color={searchQuery.trim() ? theme.colors.accent : theme.colors.textMuted}
+          />
+          <TextInput
+            placeholder="Buscar en notas y apuntes..."
+            placeholderTextColor={theme.colors.textMuted}
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            returnKeyType="search"
+            className="flex-1 ml-2 text-sm"
+            style={{ color: theme.colors.text }}
+          />
+          {Boolean(searchQuery.trim()) && (
+            <TouchableOpacity
+              onPress={() => setSearchQuery('')}
+              className="p-1 rounded-full"
+              style={{ backgroundColor: theme.colors.surfaceElevated }}
+            >
+              <X size={14} color={theme.colors.textMuted} />
+            </TouchableOpacity>
+          )}
         </View>
+      </View>
 
-        {/* 1 y 2. Pestañas Laterales Principales y Selector de Subcategorías */}
-        <CategoryPills
-          mainCategories={mainCategories}
-          subcategories={subcategories}
-          selectedMainId={selectedMainId}
-          selectedSubId={selectedSubId}
-          onSelectMain={handleSelectMainCategory}
-          onSelectSub={handleSelectSubcategory}
-          onAddCategory={handleOpenAddCategory}
-          onAddSubcategory={handleOpenAddSubcategory}
-        />
+      {/* Indicador de Búsqueda FTS5 activa */}
+      {Boolean(searchQuery.trim()) && (
+        <View className="px-4 py-1.5 flex-row items-center justify-between">
+          <View className="flex-row items-center">
+            <Zap size={13} color={theme.colors.accent} />
+            <Text
+              className="text-[11px] font-semibold ml-1.5"
+              style={{ color: theme.colors.accent }}
+            >
+              Búsqueda FTS5 (MATCH): {notes.length} resultado{notes.length === 1 ? '' : 's'}
+            </Text>
+          </View>
+          <TouchableOpacity onPress={() => setSearchQuery('')}>
+            <Text className="text-[11px] font-medium" style={{ color: theme.colors.textMuted }}>
+              Limpiar
+            </Text>
+          </TouchableOpacity>
+        </View>
+      )}
 
-        {/* 3. Grid de Notas con numColumns={2} y priorización de fijadas */}
-        <FlatList
-          data={filteredNotes}
-          keyExtractor={(item) => item.id}
+      {/* 1. Categorías Principales y Subcategorías (Jerarquía) */}
+      <CategoryPills
+        mainCategories={mainCategories}
+        subcategories={subcategories}
+        selectedMainId={selectedMainId}
+        selectedSubId={selectedSubId}
+        onSelectMain={handleSelectMainCategory}
+        onSelectSub={handleSelectSubcategory}
+        onAddCategory={handleOpenAddCategory}
+        onAddSubcategory={handleOpenAddSubcategory}
+      />
+
+      {/* 2. Virtualización Asimétrica con MasonryFlashList (Shopify) */}
+      <View className="flex-1 px-1">
+        <MasonryFlashList
+          data={notes}
           numColumns={2}
-          columnWrapperStyle={{ justifyContent: 'space-between', paddingHorizontal: 16 }}
-          contentContainerStyle={{ paddingBottom: 90, paddingTop: 4 }}
+          keyExtractor={(item: Note) => item.id}
           showsVerticalScrollIndicator={false}
+          contentContainerStyle={{ paddingHorizontal: 10, paddingBottom: 95, paddingTop: 2 }}
           refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#2563EB']} />
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              colors={[theme.colors.accent]}
+              tintColor={theme.colors.accent}
+            />
           }
-          renderItem={({ item, index }) => (
-            <View className={`w-[48%] ${index % 2 === 0 ? 'pr-1' : 'pl-1'}`}>
+          renderItem={({ item }: { item: Note }) => (
+            <View className="px-1.5 pb-2">
               <NoteCard
                 note={item}
                 onPress={() => router.push(`/notes/editor?id=${item.id}`)}
@@ -190,38 +258,76 @@ export const NotesView: React.FC = () => {
             </View>
           )}
           ListEmptyComponent={
-            <View className="py-20 items-center px-8">
-              <View className="w-16 h-16 rounded-3xl bg-slate-100 items-center justify-center mb-3">
-                <StickyNote size={32} color="#94A3B8" />
+            <View className="py-24 items-center px-8">
+              <View
+                style={{
+                  width: 58,
+                  height: 58,
+                  borderRadius: 18,
+                  backgroundColor: theme.isDark ? theme.colors.surfaceElevated : '#EFF6FF',
+                  borderColor: theme.isDark ? theme.colors.border : '#DBEAFE',
+                  borderWidth: 1,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  marginBottom: 16,
+                }}
+              >
+                <FileText
+                  size={28}
+                  color={theme.isDark ? theme.colors.textMuted : '#3B82F6'}
+                  strokeWidth={1.8}
+                />
               </View>
-              <Text className="text-base font-semibold text-slate-700 text-center">
-                No hay notas en esta vista
+              <Text
+                style={{
+                  fontSize: 17,
+                  fontWeight: '700',
+                  color: theme.colors.text,
+                  textAlign: 'center',
+                  marginBottom: 6,
+                }}
+              >
+                {Boolean(searchQuery.trim())
+                  ? 'No se encontraron notas con esa búsqueda'
+                  : 'No hay notas en esta vista'}
               </Text>
-              <Text className="text-xs text-slate-400 mt-1 text-center">
-                Presiona el botón (+) flotante para escribir tu primera nota en esta categoría.
+              <Text
+                style={{
+                  fontSize: 13,
+                  color: theme.colors.textMuted,
+                  textAlign: 'center',
+                  lineHeight: 18,
+                  maxWidth: 270,
+                }}
+              >
+                {Boolean(searchQuery.trim())
+                  ? 'El motor de búsqueda no encontró coincidencias en el título o contenido.'
+                  : 'Presiona el botón (+) flotante para escribir tu primera nota en esta categoría.'}
               </Text>
             </View>
           }
         />
-
-        {/* 4. Botón Flotante (FAB) anclado con sombra y elevación */}
-        <FloatingActionButton
-          onPress={() => {
-            const targetCat =
-              selectedSubId || (selectedMainId !== 'ALL' ? selectedMainId : '');
-            router.push(`/notes/editor${targetCat ? `?categoryId=${targetCat}` : ''}`);
-          }}
-        />
-
-        {/* Modal de Creación de Categoría / Subcategoría */}
-        <CreateCategoryModal
-          visible={isCategoryModalVisible}
-          parentId={categoryModalParentId}
-          parentName={parentCategoryObj?.name}
-          onClose={() => setIsCategoryModalVisible(false)}
-          onSubmit={handleCreateCategorySubmit}
-        />
       </View>
-    </SafeAreaView>
+
+      {/* 3. Botón Flotante (FAB) anclado con sombra y elevación */}
+      <FloatingActionButton
+        onPress={() => {
+          const targetCat =
+            selectedSubId || (selectedMainId !== 'ALL' ? selectedMainId : '');
+          router.push(
+            `/notes/editor${targetCat ? `?categoryId=${targetCat}` : ''}`
+          );
+        }}
+      />
+
+      {/* Modal de Creación de Categoría / Subcategoría */}
+      <CreateCategoryModal
+        visible={isCategoryModalVisible}
+        parentId={categoryModalParentId}
+        parentName={parentCategoryObj?.name}
+        onClose={() => setIsCategoryModalVisible(false)}
+        onSubmit={handleCreateCategorySubmit}
+      />
+    </View>
   );
 };

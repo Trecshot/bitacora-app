@@ -2,6 +2,7 @@ import React from 'react';
 import { View, Text, TouchableOpacity } from 'react-native';
 import { Pin, Trash2, Calendar } from 'lucide-react-native';
 import { Note } from '../db/database';
+import { useTheme } from '../theme/ThemeContext';
 
 interface NoteCardProps {
   note: Note;
@@ -16,36 +17,55 @@ export const NoteCard: React.FC<NoteCardProps> = ({
   onTogglePin,
   onDelete,
 }) => {
+  const { theme } = useTheme();
   const isPinned = note.is_pinned === 1;
 
   // Formato simplificado de fecha
-  const formattedDate = note.updated_at
-    ? note.updated_at.split(' ')[0]
-    : '';
+  const formattedDate = note.updated_at ? note.updated_at.split(' ')[0] : '';
+  const tags = note.tags || [];
 
   return (
     <TouchableOpacity
       activeOpacity={0.8}
       onPress={onPress}
-      className={`rounded-2xl p-3.5 mb-3 border flex-1 ${
-        isPinned
-          ? 'bg-amber-50/70 border-amber-200/90 shadow-sm'
-          : 'bg-white border-slate-200/80 shadow-sm'
-      }`}
-      style={{
-        shadowColor: isPinned ? '#D97706' : '#64748B',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: isPinned ? 0.08 : 0.04,
-        shadowRadius: 5,
-        elevation: isPinned ? 2 : 1,
-        minHeight: 130,
-      }}
+      style={[
+        theme.cardStyle,
+        {
+          borderRadius: theme.metrics.radii.lg,
+          padding: 13,
+          marginBottom: 10,
+          backgroundColor: isPinned
+            ? theme.colors.warningSubtle
+            : theme.colors.cardBg,
+          borderColor: isPinned
+            ? theme.colors.warning
+            : theme.colors.border,
+          borderWidth: theme.metrics.borderWidth,
+        },
+      ]}
     >
       {/* Cabecera de la Tarjeta: Categoría y Botón Fijar */}
       <View className="flex-row items-center justify-between mb-2">
         {Boolean(note.category_name) ? (
-          <View className="bg-slate-100 px-2 py-0.5 rounded-md max-w-[75%]">
-            <Text className="text-[10px] font-semibold text-slate-600 truncate" numberOfLines={1}>
+          <View
+            style={{
+              backgroundColor: theme.colors.surfaceElevated,
+              borderColor: theme.colors.borderSubtle,
+              borderWidth: 1,
+              paddingHorizontal: 8,
+              paddingVertical: 2,
+              borderRadius: theme.metrics.radii.sm,
+              maxWidth: '75%',
+            }}
+          >
+            <Text
+              style={{
+                fontSize: 10,
+                fontWeight: '600',
+                color: theme.colors.textSecondary,
+              }}
+              numberOfLines={1}
+            >
               {note.category_name}
             </Text>
           </View>
@@ -60,39 +80,113 @@ export const NoteCard: React.FC<NoteCardProps> = ({
             e.stopPropagation();
             onTogglePin(note.id);
           }}
-          className={`p-1 rounded-full ${
-            isPinned ? 'bg-amber-200/60' : 'bg-transparent'
-          }`}
+          style={{
+            padding: 4,
+            borderRadius: theme.metrics.radii.full,
+            backgroundColor: isPinned ? `${theme.colors.warning}33` : 'transparent',
+          }}
         >
           <Pin
-            size={15}
-            color={isPinned ? '#D97706' : '#94A3B8'}
-            fill={isPinned ? '#F59E0B' : 'none'}
+            size={14}
+            color={isPinned ? theme.colors.warning : theme.colors.textMuted}
+            fill={isPinned ? theme.colors.warning : 'none'}
           />
         </TouchableOpacity>
       </View>
 
       {/* Título */}
       <Text
-        className="text-sm font-bold text-slate-800 mb-1.5 leading-snug"
+        style={{
+          fontSize: 14,
+          fontWeight: theme.typography.titleWeight,
+          color: theme.colors.text,
+          marginBottom: 6,
+          lineHeight: 19,
+        }}
         numberOfLines={2}
       >
         {note.title || 'Sin Título'}
       </Text>
 
-      {/* Extracto de Contenido */}
-      <Text
-        className="text-xs text-slate-500 leading-relaxed flex-1"
-        numberOfLines={4}
-      >
-        {note.content || 'Nota vacía...'}
-      </Text>
+      {/* Extracto de Contenido (altura dinámica para layout asimétrico) */}
+      {Boolean(note.content) && (
+        <Text
+          style={{
+            fontSize: 12,
+            color: theme.colors.textMuted,
+            lineHeight: 17,
+            marginBottom: 8,
+          }}
+          numberOfLines={6}
+        >
+          {note.content}
+        </Text>
+      )}
+
+      {/* Taxonomía Transversal: Etiquetas Dinámicas (Tags) */}
+      {tags.length > 0 && (
+        <View className="flex-row flex-wrap gap-1 mb-2">
+          {tags.map((tag) => (
+            <View
+              key={tag.id}
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                paddingHorizontal: 6,
+                paddingVertical: 2,
+                borderRadius: theme.metrics.radii.sm,
+                backgroundColor: theme.colors.surfaceElevated,
+                borderColor: theme.colors.borderSubtle,
+                borderWidth: 1,
+              }}
+            >
+              <View
+                style={{
+                  width: 6,
+                  height: 6,
+                  borderRadius: theme.metrics.radii.full,
+                  marginRight: 4,
+                  backgroundColor: tag.color || theme.colors.accent,
+                }}
+              />
+              <Text
+                style={{
+                  fontSize: 9,
+                  fontWeight: '500',
+                  color: theme.colors.textSecondary,
+                  maxWidth: 70,
+                }}
+                numberOfLines={1}
+              >
+                {tag.name}
+              </Text>
+            </View>
+          ))}
+        </View>
+      )}
 
       {/* Pie de Tarjeta: Fecha y Opciones */}
-      <View className="flex-row items-center justify-between pt-2.5 mt-2 border-t border-slate-100">
+      <View
+        style={{
+          flexDirection: 'row',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          paddingTop: 8,
+          borderTopColor: theme.colors.borderSubtle,
+          borderTopWidth: 1,
+          marginTop: 'auto',
+        }}
+      >
         <View className="flex-row items-center">
-          <Calendar size={11} color="#94A3B8" />
-          <Text className="text-[10px] text-slate-400 ml-1 font-medium">
+          <Calendar size={11} color={theme.colors.textMuted} />
+          <Text
+            style={{
+              fontSize: 10,
+              color: theme.colors.textMuted,
+              marginLeft: 4,
+              fontWeight: '500',
+            }}
+          >
             {formattedDate}
           </Text>
         </View>
@@ -104,9 +198,9 @@ export const NoteCard: React.FC<NoteCardProps> = ({
               e.stopPropagation();
               onDelete(note.id);
             }}
-            className="p-1"
+            style={{ padding: 4 }}
           >
-            <Trash2 size={13} color="#CBD5E1" />
+            <Trash2 size={13} color={theme.colors.textMuted} />
           </TouchableOpacity>
         )}
       </View>

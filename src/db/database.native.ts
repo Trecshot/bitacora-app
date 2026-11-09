@@ -1,91 +1,37 @@
 import * as SQLite from 'expo-sqlite';
+import {
+  Folder,
+  Task,
+  TaskStatus,
+  TaskPriority,
+  AuditLog,
+  NoteCategory,
+  Tag,
+  NoteTag,
+  Note,
+  SearchNotesOptions,
+} from './types';
+import {
+  generateUUID,
+  INITIAL_PROJECT_VISION_MARKDOWN,
+  SEED_FOLDERS_DATA,
+  SEED_TAGS_DATA,
+} from './seedData';
+import { DEFAULT_FOLDER_COLOR } from '../utils/dateAndTaskUtils';
 
-// Generador de UUID v4 estándar para Note_Categories y Notes
-export function generateUUID(): string {
-  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
-    const r = (Math.random() * 16) | 0;
-    const v = c === 'x' ? r : (r & 0x3) | 0x8;
-    return v.toString(16);
-  });
-}
-
-// -----------------------------------------------------------------------------
-// Interfaces del Módulo de Proyectos (Kanban & Folders)
-// -----------------------------------------------------------------------------
-export interface Folder {
-  id: number;
-  name: string;
-  description?: string;
-  parent_id: number | null;
-  color?: string;
-  icon?: string;
-  created_at?: string;
-  updated_at?: string;
-  task_count?: number;
-  subfolder_count?: number;
-  stale_task_count?: number;
-  depth?: number;
-}
-
-export type TaskStatus = 'TODO' | 'IN_PROGRESS' | 'DONE';
-export type TaskPriority = 'LOW' | 'MEDIUM' | 'HIGH';
-
-export interface Task {
-  id: number;
-  folder_id: number;
-  title: string;
-  description?: string;
-  status: TaskStatus;
-  priority: TaskPriority;
-  due_date?: string | null;
-  is_deleted?: number;
-  created_at?: string;
-  updated_at?: string;
-}
-
-export interface AuditLog {
-  id: number;
-  entity_type: 'FOLDER' | 'TASK';
-  entity_id: number;
-  folder_id?: number | null;
-  task_id?: number | null;
-  action:
-    | 'CREATE'
-    | 'UPDATE'
-    | 'STATUS_CHANGE'
-    | 'PRIORITY_CHANGE'
-    | 'STATUS_TRIGGER'
-    | 'PRIORITY_TRIGGER'
-    | 'SOFT_DELETE'
-    | 'RESTORE'
-    | 'DELETE';
-  old_value: string | null;
-  new_value: string | null;
-  timestamp: string;
-}
-
-// -----------------------------------------------------------------------------
-// Interfaces del Módulo de Notas (Esquema Independiente SQLite)
-// -----------------------------------------------------------------------------
-export interface NoteCategory {
-  id: string; // UUID
-  parent_id: string | null; // UUID (Foreign Key, Nullable)
-  name: string;
-  created_at?: string;
-  subcategories_count?: number;
-  notes_count?: number;
-}
-
-export interface Note {
-  id: string; // UUID
-  category_id: string; // UUID (Foreign Key)
-  category_name?: string;
-  title: string;
-  content: string;
-  is_pinned: number; // 0 o 1
-  created_at?: string;
-  updated_at?: string;
-}
+export type {
+  Folder,
+  Task,
+  TaskStatus,
+  TaskPriority,
+  AuditLog,
+  NoteCategory,
+  Tag,
+  NoteTag,
+  Note,
+  SearchNotesOptions,
+};
+export { generateUUID };
 
 // Instanciar la conexión sincrónica según la arquitectura requerida
 export const db = SQLite.openDatabaseSync('bitacora.db');
@@ -143,20 +89,17 @@ export function initDatabase(): void {
 
   // Asegurar que la columna is_deleted exista en Tasks (Migración Soft Delete)
   const taskColumns = db.getAllSync<{ name: string }>('PRAGMA table_info(Tasks);');
-  const hasIsDeletedColumn = taskColumns.some((col) => col.name === 'is_deleted');
-  if (!hasIsDeletedColumn) {
+  if (!taskColumns.some((col) => col.name === 'is_deleted')) {
     db.execSync('ALTER TABLE Tasks ADD COLUMN is_deleted BOOLEAN DEFAULT 0;');
   }
 
   // Asegurar que las columnas task_id y folder_id existan en Audit_Logs
   const auditColumns = db.getAllSync<{ name: string }>('PRAGMA table_info(Audit_Logs);');
-  const hasTaskIdColumn = auditColumns.some((col) => col.name === 'task_id');
-  if (!hasTaskIdColumn) {
+  if (!auditColumns.some((col) => col.name === 'task_id')) {
     db.execSync('ALTER TABLE Audit_Logs ADD COLUMN task_id INTEGER DEFAULT NULL;');
   }
 
-  const hasFolderIdColumn = auditColumns.some((col) => col.name === 'folder_id');
-  if (!hasFolderIdColumn) {
+  if (!auditColumns.some((col) => col.name === 'folder_id')) {
     db.execSync('ALTER TABLE Audit_Logs ADD COLUMN folder_id INTEGER DEFAULT NULL;');
     try {
       db.execSync(`
@@ -175,8 +118,7 @@ export function initDatabase(): void {
 
   // Asegurar que la columna description exista en Folders para almacenar contexto Markdown
   const folderColumns = db.getAllSync<{ name: string }>('PRAGMA table_info(Folders);');
-  const hasDescriptionColumn = folderColumns.some((col) => col.name === 'description');
-  if (!hasDescriptionColumn) {
+  if (!folderColumns.some((col) => col.name === 'description')) {
     db.execSync("ALTER TABLE Folders ADD COLUMN description TEXT DEFAULT '';");
   }
 
@@ -324,7 +266,7 @@ export function initDatabase(): void {
     END;
   `);
 
-  // Migración del Esquema Independiente para Notas (Note_Categories & Notes)
+  // Migración del Esquema Independiente para Notas (Note_Categories, Notes, Tags, Note_Tags & FTS5)
   db.execSync(`
     CREATE TABLE IF NOT EXISTS Note_Categories (
       id TEXT PRIMARY KEY,
@@ -344,33 +286,82 @@ export function initDatabase(): void {
       updated_at TEXT DEFAULT (datetime('now', 'localtime')),
       FOREIGN KEY (category_id) REFERENCES Note_Categories(id) ON DELETE CASCADE
     );
+
+    -- Tablas para Taxonomía Transversal (Relación Muchos a Muchos: Tags & Note_Tags)
+    CREATE TABLE IF NOT EXISTS Tags (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL UNIQUE,
+      color TEXT DEFAULT '#3B82F6',
+      created_at TEXT DEFAULT (datetime('now', 'localtime'))
+    );
+
+    CREATE TABLE IF NOT EXISTS Note_Tags (
+      note_id TEXT NOT NULL,
+      tag_id TEXT NOT NULL,
+      created_at TEXT DEFAULT (datetime('now', 'localtime')),
+      PRIMARY KEY (note_id, tag_id),
+      FOREIGN KEY (note_id) REFERENCES Notes(id) ON DELETE CASCADE,
+      FOREIGN KEY (tag_id) REFERENCES Tags(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_note_tags_note_id ON Note_Tags(note_id);
+    CREATE INDEX IF NOT EXISTS idx_note_tags_tag_id ON Note_Tags(tag_id);
+
+    -- Tabla Virtual de Búsqueda de Texto Completo FTS5 para Notas
+    CREATE VIRTUAL TABLE IF NOT EXISTS Notes_FTS USING fts5(
+      id UNINDEXED,
+      title,
+      content,
+      tokenize = 'unicode61'
+    );
+
+    -- Triggers para sincronización automática de FTS5
+    DROP TRIGGER IF EXISTS trg_notes_fts_insert;
+    CREATE TRIGGER trg_notes_fts_insert AFTER INSERT ON Notes
+    BEGIN
+      INSERT INTO Notes_FTS(id, title, content) VALUES (NEW.id, NEW.title, NEW.content);
+    END;
+
+    DROP TRIGGER IF EXISTS trg_notes_fts_update;
+    CREATE TRIGGER trg_notes_fts_update AFTER UPDATE ON Notes
+    BEGIN
+      DELETE FROM Notes_FTS WHERE id = OLD.id;
+      INSERT INTO Notes_FTS(id, title, content) VALUES (NEW.id, NEW.title, NEW.content);
+    END;
+
+    DROP TRIGGER IF EXISTS trg_notes_fts_delete;
+    CREATE TRIGGER trg_notes_fts_delete AFTER DELETE ON Notes
+    BEGIN
+      DELETE FROM Notes_FTS WHERE id = OLD.id;
+    END;
   `);
+
+  // Sincronizar notas existentes en la tabla virtual FTS5 si aún no están indexadas
+  try {
+    db.execSync(`
+      INSERT INTO Notes_FTS(id, title, content)
+      SELECT id, title, content FROM Notes
+      WHERE id NOT IN (SELECT id FROM Notes_FTS);
+    `);
+  } catch (e) {
+    console.warn('Advertencia al indexar FTS5:', e);
+  }
 
   // Datos de muestra iniciales
   seedProjectDataIfEmpty();
   seedNoteDataIfEmpty();
+  seedTagDataIfEmpty();
 }
 
 function seedProjectDataIfEmpty(): void {
   const countRow = db.getFirstSync<{ count: number }>('SELECT COUNT(*) as count FROM Folders;');
   if (!countRow || countRow.count === 0) {
-    db.runSync(
-      `INSERT INTO Folders (name, color, icon, description) VALUES (?, ?, ?, ?);`,
-      [
-        'Proyecto Principal',
-        '#3B82F6',
-        'folder-kanban',
-        '# Visión del Proyecto\nEste espacio centraliza las tareas, hitos y notas clave de la bitácora.\n\n- **Objetivo**: Optimizar la productividad y organización.\n- **Metodología**: Tablero Kanban interactivo con persistencia local SQLite.',
-      ]
-    );
-    db.runSync(
-      `INSERT INTO Folders (name, color, icon, description) VALUES (?, ?, ?, ?);`,
-      ['Documentación & Notas', '#10B981', 'book-open', 'Documentación técnica del sistema, guías y especificaciones de arquitectura.']
-    );
-    db.runSync(
-      `INSERT INTO Folders (name, color, icon, description) VALUES (?, ?, ?, ?);`,
-      ['Diseño UI/UX', '#8B5CF6', 'palette', 'Bocetos, patrones de componentes y guías de estilos para la aplicación.']
-    );
+    for (const folder of SEED_FOLDERS_DATA) {
+      db.runSync(
+        `INSERT INTO Folders (name, color, icon, description) VALUES (?, ?, ?, ?);`,
+        [folder.name, folder.color, folder.icon, folder.description]
+      );
+    }
 
     // Tareas iniciales para la carpeta 1 (incluyendo una tarea estancada > 7 días y fechas límite)
     db.runSync(
@@ -390,14 +381,13 @@ function seedProjectDataIfEmpty(): void {
     );
   } else {
     try {
-      const rootFolder = db.getFirstSync<{ description: string | null }>('SELECT description FROM Folders WHERE id = 1;');
+      const rootFolder = db.getFirstSync<{ description: string | null }>(
+        'SELECT description FROM Folders WHERE id = 1;'
+      );
       if (rootFolder && (!rootFolder.description || rootFolder.description.trim() === '')) {
-        db.runSync(
-          'UPDATE Folders SET description = ? WHERE id = 1;',
-          [
-            '# Visión del Proyecto\nEste espacio centraliza las tareas, hitos y notas clave de la bitácora.\n\n- **Objetivo**: Optimizar la productividad y organización.\n- **Metodología**: Tablero Kanban interactivo con persistencia local SQLite.',
-          ]
-        );
+        db.runSync('UPDATE Folders SET description = ? WHERE id = 1;', [
+          INITIAL_PROJECT_VISION_MARKDOWN,
+        ]);
       }
     } catch {
       // Ignorar si aún no existe
@@ -406,21 +396,40 @@ function seedProjectDataIfEmpty(): void {
 }
 
 function seedNoteDataIfEmpty(): void {
-  const countRow = db.getFirstSync<{ count: number }>('SELECT COUNT(*) as count FROM Note_Categories;');
+  const countRow = db.getFirstSync<{ count: number }>(
+    'SELECT COUNT(*) as count FROM Note_Categories;'
+  );
   if (!countRow || countRow.count === 0) {
     const seriesId = generateUUID();
     const personalId = generateUUID();
     const ideasId = generateUUID();
 
-    db.runSync(`INSERT INTO Note_Categories (id, parent_id, name) VALUES (?, NULL, ?);`, [seriesId, 'Series']);
-    db.runSync(`INSERT INTO Note_Categories (id, parent_id, name) VALUES (?, NULL, ?);`, [personalId, 'Personal']);
-    db.runSync(`INSERT INTO Note_Categories (id, parent_id, name) VALUES (?, NULL, ?);`, [ideasId, 'Ideas']);
+    db.runSync(`INSERT INTO Note_Categories (id, parent_id, name) VALUES (?, NULL, ?);`, [
+      seriesId,
+      'Series',
+    ]);
+    db.runSync(`INSERT INTO Note_Categories (id, parent_id, name) VALUES (?, NULL, ?);`, [
+      personalId,
+      'Personal',
+    ]);
+    db.runSync(`INSERT INTO Note_Categories (id, parent_id, name) VALUES (?, NULL, ?);`, [
+      ideasId,
+      'Ideas',
+    ]);
 
     const seriesAnimadasId = generateUUID();
     const seriesNormalesId = generateUUID();
 
-    db.runSync(`INSERT INTO Note_Categories (id, parent_id, name) VALUES (?, ?, ?);`, [seriesAnimadasId, seriesId, 'Series Animadas']);
-    db.runSync(`INSERT INTO Note_Categories (id, parent_id, name) VALUES (?, ?, ?);`, [seriesNormalesId, seriesId, 'Series Normales']);
+    db.runSync(`INSERT INTO Note_Categories (id, parent_id, name) VALUES (?, ?, ?);`, [
+      seriesAnimadasId,
+      seriesId,
+      'Series Animadas',
+    ]);
+    db.runSync(`INSERT INTO Note_Categories (id, parent_id, name) VALUES (?, ?, ?);`, [
+      seriesNormalesId,
+      seriesId,
+      'Series Normales',
+    ]);
 
     db.runSync(
       `INSERT INTO Notes (id, category_id, title, content, is_pinned) VALUES (?, ?, ?, ?, ?);`,
@@ -468,6 +477,58 @@ function seedNoteDataIfEmpty(): void {
   }
 }
 
+function seedTagDataIfEmpty(): void {
+  const countRow = db.getFirstSync<{ count: number }>('SELECT COUNT(*) as count FROM Tags;');
+  if (!countRow || countRow.count === 0) {
+    const defaultTags = SEED_TAGS_DATA.map((t) => ({
+      id: generateUUID(),
+      name: t.name,
+      color: t.color,
+    }));
+
+    for (const tag of defaultTags) {
+      db.runSync('INSERT INTO Tags (id, name, color) VALUES (?, ?, ?);', [
+        tag.id,
+        tag.name,
+        tag.color,
+      ]);
+    }
+
+    // Asociar etiquetas iniciales para demostrar taxonomía transversal inmediata
+    const existingNotes = db.getAllSync<{ id: string }>(
+      'SELECT id FROM Notes ORDER BY created_at ASC LIMIT 4;'
+    );
+    if (existingNotes.length >= 2 && defaultTags.length >= 4) {
+      try {
+        db.runSync('INSERT OR IGNORE INTO Note_Tags (note_id, tag_id) VALUES (?, ?);', [
+          existingNotes[0].id,
+          defaultTags[2].id, // Ideas
+        ]);
+        db.runSync('INSERT OR IGNORE INTO Note_Tags (note_id, tag_id) VALUES (?, ?);', [
+          existingNotes[0].id,
+          defaultTags[4].id, // Personal
+        ]);
+        db.runSync('INSERT OR IGNORE INTO Note_Tags (note_id, tag_id) VALUES (?, ?);', [
+          existingNotes[1].id,
+          defaultTags[1].id, // Trabajo
+        ]);
+        if (existingNotes.length >= 3) {
+          db.runSync('INSERT OR IGNORE INTO Note_Tags (note_id, tag_id) VALUES (?, ?);', [
+            existingNotes[2].id,
+            defaultTags[0].id, // Urgente
+          ]);
+          db.runSync('INSERT OR IGNORE INTO Note_Tags (note_id, tag_id) VALUES (?, ?);', [
+            existingNotes[2].id,
+            defaultTags[4].id, // Personal
+          ]);
+        }
+      } catch (err) {
+        console.warn('Error al vincular tags iniciales:', err);
+      }
+    }
+  }
+}
+
 // -----------------------------------------------------------------------------
 // Operaciones de Proyectos / Folders & Tasks con CTEs Recursivas
 // -----------------------------------------------------------------------------
@@ -493,6 +554,35 @@ const RECURSIVE_FOLDER_CTE = `
   )
 `;
 
+const FOLDER_SELECT_WITH_METRICS_SQL = `
+  SELECT 
+    f.*,
+    COALESCE(fd.depth, 0) AS depth,
+    (
+      SELECT COUNT(*)
+      FROM Tasks t
+      INNER JOIN FolderHierarchy fh ON t.folder_id = fh.descendant_id
+      WHERE fh.root_id = f.id
+        AND COALESCE(t.is_deleted, 0) = 0
+    ) AS task_count,
+    (
+      SELECT COUNT(*)
+      FROM Tasks t
+      INNER JOIN FolderHierarchy fh ON t.folder_id = fh.descendant_id
+      WHERE fh.root_id = f.id
+        AND COALESCE(t.is_deleted, 0) = 0
+        AND t.status = 'IN_PROGRESS'
+        AND datetime(t.updated_at) < datetime('now', '-7 days')
+    ) AS stale_task_count,
+    (
+      SELECT COUNT(*)
+      FROM FolderHierarchy fh
+      WHERE fh.root_id = f.id AND fh.rel_depth > 0
+    ) AS subfolder_count
+  FROM Folders f
+  LEFT JOIN FolderDepth fd ON fd.id = f.id
+`;
+
 /**
  * Obtiene carpetas utilizando Common Table Expressions (CTEs) recursivas
  * para calcular en una sola consulta la profundidad (depth), el conteo de tareas
@@ -502,32 +592,7 @@ export function getFolders(parentId: number | null = null): Folder[] {
   const whereClause = parentId === null ? 'WHERE f.parent_id IS NULL' : 'WHERE f.parent_id = ?';
   const query = `
     ${RECURSIVE_FOLDER_CTE}
-    SELECT 
-      f.*,
-      COALESCE(fd.depth, 0) AS depth,
-      (
-        SELECT COUNT(*)
-        FROM Tasks t
-        INNER JOIN FolderHierarchy fh ON t.folder_id = fh.descendant_id
-        WHERE fh.root_id = f.id
-          AND COALESCE(t.is_deleted, 0) = 0
-      ) AS task_count,
-      (
-        SELECT COUNT(*)
-        FROM Tasks t
-        INNER JOIN FolderHierarchy fh ON t.folder_id = fh.descendant_id
-        WHERE fh.root_id = f.id
-          AND COALESCE(t.is_deleted, 0) = 0
-          AND t.status = 'IN_PROGRESS'
-          AND datetime(t.updated_at) < datetime('now', '-7 days')
-      ) AS stale_task_count,
-      (
-        SELECT COUNT(*)
-        FROM FolderHierarchy fh
-        WHERE fh.root_id = f.id AND fh.rel_depth > 0
-      ) AS subfolder_count
-    FROM Folders f
-    LEFT JOIN FolderDepth fd ON fd.id = f.id
+    ${FOLDER_SELECT_WITH_METRICS_SQL}
     ${whereClause}
     ORDER BY f.id DESC;
   `;
@@ -540,32 +605,7 @@ export function getFolders(parentId: number | null = null): Folder[] {
 export function getFolderById(id: number): Folder | null {
   const query = `
     ${RECURSIVE_FOLDER_CTE}
-    SELECT 
-      f.*,
-      COALESCE(fd.depth, 0) AS depth,
-      (
-        SELECT COUNT(*)
-        FROM Tasks t
-        INNER JOIN FolderHierarchy fh ON t.folder_id = fh.descendant_id
-        WHERE fh.root_id = f.id
-          AND COALESCE(t.is_deleted, 0) = 0
-      ) AS task_count,
-      (
-        SELECT COUNT(*)
-        FROM Tasks t
-        INNER JOIN FolderHierarchy fh ON t.folder_id = fh.descendant_id
-        WHERE fh.root_id = f.id
-          AND COALESCE(t.is_deleted, 0) = 0
-          AND t.status = 'IN_PROGRESS'
-          AND datetime(t.updated_at) < datetime('now', '-7 days')
-      ) AS stale_task_count,
-      (
-        SELECT COUNT(*)
-        FROM FolderHierarchy fh
-        WHERE fh.root_id = f.id AND fh.rel_depth > 0
-      ) AS subfolder_count
-    FROM Folders f
-    LEFT JOIN FolderDepth fd ON fd.id = f.id
+    ${FOLDER_SELECT_WITH_METRICS_SQL}
     WHERE f.id = ?;
   `;
   return db.getFirstSync<Folder>(query, [id]);
@@ -626,9 +666,9 @@ export function createFolder(
         'SELECT color FROM Folders WHERE id = ?;',
         [parentId]
       );
-      resolvedColor = parentRow?.color || '#3B82F6';
+      resolvedColor = parentRow?.color || DEFAULT_FOLDER_COLOR;
     }
-    const finalColor = resolvedColor || '#3B82F6';
+    const finalColor = resolvedColor || DEFAULT_FOLDER_COLOR;
 
     const result = db.runSync(
       'INSERT INTO Folders (name, parent_id, color, description) VALUES (?, ?, ?, ?);',
@@ -654,7 +694,10 @@ export function updateFolderDescription(id: number, description: string): void {
   );
 }
 
-export async function updateFolderDescriptionAsync(id: number, description: string): Promise<void> {
+export async function updateFolderDescriptionAsync(
+  id: number,
+  description: string
+): Promise<void> {
   await db.runAsync(
     "UPDATE Folders SET description = ?, updated_at = datetime('now', 'localtime') WHERE id = ?;",
     [description, id]
@@ -793,33 +836,125 @@ export function getAuditLogs(limit = 50, taskId?: number): AuditLog[] {
   );
 }
 
+const PROJECT_AUDIT_LOGS_SQL = `
+  SELECT * FROM Audit_Logs 
+  WHERE folder_id = ? 
+  ORDER BY timestamp DESC, id DESC 
+  LIMIT ? OFFSET ?;
+`;
+
 /**
  * Consulta de extracción con paginación (LIMIT/OFFSET) utilizando
  * el índice compuesto idx_audit_folder_timestamp para optimizar la velocidad de lectura.
  */
 export function getProjectAuditLogs(folderId: number, limit = 20, offset = 0): AuditLog[] {
-  return db.getAllSync<AuditLog>(
-    `SELECT * FROM Audit_Logs 
-     WHERE folder_id = ? 
-     ORDER BY timestamp DESC, id DESC 
-     LIMIT ? OFFSET ?;`,
-    [folderId, limit, offset]
-  );
+  return db.getAllSync<AuditLog>(PROJECT_AUDIT_LOGS_SQL, [folderId, limit, offset]);
 }
 
-export async function getProjectAuditLogsAsync(folderId: number, limit = 20, offset = 0): Promise<AuditLog[]> {
-  return await db.getAllAsync<AuditLog>(
-    `SELECT * FROM Audit_Logs 
-     WHERE folder_id = ? 
-     ORDER BY timestamp DESC, id DESC 
-     LIMIT ? OFFSET ?;`,
-    [folderId, limit, offset]
-  );
+export async function getProjectAuditLogsAsync(
+  folderId: number,
+  limit = 20,
+  offset = 0
+): Promise<AuditLog[]> {
+  return await db.getAllAsync<AuditLog>(PROJECT_AUDIT_LOGS_SQL, [folderId, limit, offset]);
 }
 
 // -----------------------------------------------------------------------------
-// Operaciones del Módulo de Notas (Note_Categories & Notes)
+// Operaciones del Módulo de Notas (Note_Categories, Notes, Tags & FTS5)
 // -----------------------------------------------------------------------------
+
+const NOTE_TAGS_JSON_SUBQUERY = `
+  (
+    SELECT json_group_array(json_object('id', t.id, 'name', t.name, 'color', t.color))
+    FROM Note_Tags nt
+    JOIN Tags t ON nt.tag_id = t.id
+    WHERE nt.note_id = n.id
+  ) AS tags_json
+`;
+
+function parseNoteRows(rows: (Note & { tags_json?: string })[]): Note[] {
+  return rows.map((r) => {
+    let tags: Tag[] = [];
+    if (r.tags_json) {
+      try {
+        const parsed = JSON.parse(r.tags_json);
+        if (Array.isArray(parsed)) {
+          tags = parsed.filter((t: any) => t && t.id);
+        }
+      } catch {
+        tags = [];
+      }
+    }
+    const { tags_json, ...rest } = r;
+    return {
+      ...rest,
+      tags,
+    };
+  });
+}
+
+export function sanitizeFtsQuery(query: string): string {
+  // Limpieza y sanitización de caracteres de control para evitar fallos de sintaxis en FTS5
+  const cleaned = query.replace(/[^\p{L}\p{N}\s]/gu, ' ').trim();
+  if (!cleaned) return '';
+  const tokens = cleaned.split(/\s+/).filter(Boolean);
+  return tokens.map((token) => `"${token}"*`).join(' ');
+}
+
+export function getAllTags(): Tag[] {
+  return db.getAllSync<Tag>('SELECT * FROM Tags ORDER BY name ASC;');
+}
+
+export function createTag(name: string, color = DEFAULT_FOLDER_COLOR): Tag {
+  const trimmed = name.trim();
+  const existing = db.getFirstSync<Tag>(
+    'SELECT * FROM Tags WHERE LOWER(name) = LOWER(?);',
+    [trimmed]
+  );
+  if (existing) return existing;
+
+  const id = generateUUID();
+  db.runSync('INSERT INTO Tags (id, name, color) VALUES (?, ?, ?);', [id, trimmed, color]);
+  return { id, name: trimmed, color };
+}
+
+export function deleteTag(id: string): void {
+  db.runSync('DELETE FROM Tags WHERE id = ?;', [id]);
+}
+
+export function getNoteTags(noteId: string): Tag[] {
+  return db.getAllSync<Tag>(
+    `SELECT t.* FROM Tags t
+     JOIN Note_Tags nt ON nt.tag_id = t.id
+     WHERE nt.note_id = ?
+     ORDER BY t.name ASC;`,
+    [noteId]
+  );
+}
+
+export function setNoteTags(noteId: string, tagIds: string[]): void {
+  db.runSync('DELETE FROM Note_Tags WHERE note_id = ?;', [noteId]);
+  for (const tagId of tagIds) {
+    db.runSync('INSERT OR IGNORE INTO Note_Tags (note_id, tag_id) VALUES (?, ?);', [
+      noteId,
+      tagId,
+    ]);
+  }
+}
+
+export async function setNoteTagsAsync(noteId: string, tagIds: string[]): Promise<void> {
+  await db.runAsync('DELETE FROM Note_Tags WHERE note_id = ?;', [noteId]);
+  for (const tagId of tagIds) {
+    await db.runAsync('INSERT OR IGNORE INTO Note_Tags (note_id, tag_id) VALUES (?, ?);', [
+      noteId,
+      tagId,
+    ]);
+  }
+}
+
+export function getNotesByTag(tagId: string): Note[] {
+  return getNotes(null, false, tagId);
+}
 
 export function getMainNoteCategories(): NoteCategory[] {
   return db.getAllSync<NoteCategory>(`
@@ -834,7 +969,8 @@ export function getMainNoteCategories(): NoteCategory[] {
 }
 
 export function getSubcategories(parentId: string): NoteCategory[] {
-  return db.getAllSync<NoteCategory>(`
+  return db.getAllSync<NoteCategory>(
+    `
     SELECT 
       c.*,
       0 AS subcategories_count,
@@ -842,7 +978,9 @@ export function getSubcategories(parentId: string): NoteCategory[] {
     FROM Note_Categories c
     WHERE c.parent_id = ?
     ORDER BY c.created_at ASC;
-  `, [parentId]);
+  `,
+    [parentId]
+  );
 }
 
 export function getAllNoteCategories(): NoteCategory[] {
@@ -858,10 +996,11 @@ export function getAllNoteCategories(): NoteCategory[] {
 
 export function createNoteCategory(name: string, parentId: string | null = null): string {
   const id = generateUUID();
-  db.runSync(
-    'INSERT INTO Note_Categories (id, parent_id, name) VALUES (?, ?, ?);',
-    [id, parentId, name]
-  );
+  db.runSync('INSERT INTO Note_Categories (id, parent_id, name) VALUES (?, ?, ?);', [
+    id,
+    parentId,
+    name,
+  ]);
   return id;
 }
 
@@ -869,66 +1008,221 @@ export function deleteNoteCategory(id: string): void {
   db.runSync('DELETE FROM Note_Categories WHERE id = ?;', [id]);
 }
 
-export function getNotes(categoryId?: string | null, isMainCategoryWithSubs = false): Note[] {
-  if (!categoryId || categoryId === 'ALL') {
-    return db.getAllSync<Note>(`
-      SELECT 
-        n.*,
-        c.name AS category_name
-      FROM Notes n
-      LEFT JOIN Note_Categories c ON n.category_id = c.id
-      ORDER BY n.is_pinned DESC, n.updated_at DESC;
-    `);
+function appendCategoryCondition(
+  conditions: string[],
+  params: any[],
+  categoryId?: string | null,
+  isMainCategoryWithSubs = false
+): void {
+  if (categoryId && categoryId !== 'ALL') {
+    if (isMainCategoryWithSubs) {
+      conditions.push(
+        `(n.category_id = ? OR n.category_id IN (SELECT id FROM Note_Categories WHERE parent_id = ?))`
+      );
+      params.push(categoryId, categoryId);
+    } else {
+      conditions.push(`n.category_id = ?`);
+      params.push(categoryId);
+    }
   }
+}
 
-  if (isMainCategoryWithSubs) {
-    return db.getAllSync<Note>(`
-      SELECT 
-        n.*,
-        c.name AS category_name
-      FROM Notes n
-      LEFT JOIN Note_Categories c ON n.category_id = c.id
-      WHERE n.category_id = ? OR n.category_id IN (SELECT id FROM Note_Categories WHERE parent_id = ?)
-      ORDER BY n.is_pinned DESC, n.updated_at DESC;
-    `, [categoryId, categoryId]);
-  }
-
-  return db.getAllSync<Note>(`
+export function getNotes(
+  categoryId?: string | null,
+  isMainCategoryWithSubs = false,
+  tagId?: string | null
+): Note[] {
+  let querySql = `
     SELECT 
       n.*,
-      c.name AS category_name
+      c.name AS category_name,
+      ${NOTE_TAGS_JSON_SUBQUERY}
     FROM Notes n
     LEFT JOIN Note_Categories c ON n.category_id = c.id
-    WHERE n.category_id = ?
-    ORDER BY n.is_pinned DESC, n.updated_at DESC;
-  `, [categoryId]);
+  `;
+
+  const params: any[] = [];
+  const conditions: string[] = [];
+
+  if (tagId) {
+    querySql += ` JOIN Note_Tags filter_nt ON filter_nt.note_id = n.id AND filter_nt.tag_id = ? `;
+    params.push(tagId);
+  }
+
+  appendCategoryCondition(conditions, params, categoryId, isMainCategoryWithSubs);
+
+  if (conditions.length > 0) {
+    querySql += ` WHERE ` + conditions.join(' AND ');
+  }
+
+  querySql += ` ORDER BY n.is_pinned DESC, n.updated_at DESC;`;
+
+  const rows = db.getAllSync<Note & { tags_json?: string }>(querySql, params);
+  return parseNoteRows(rows);
+}
+
+/**
+ * Búsqueda de Texto Completo ultra-rápida utilizando la tabla virtual SQLite FTS5 y operador MATCH.
+ * Soporta filtrado transversal por etiquetas (Tags) y jerarquía de categorías.
+ */
+export function searchNotes(query: string, options?: SearchNotesOptions): Note[] {
+  const trimmed = query.trim();
+  if (!trimmed) {
+    return getNotes(options?.categoryId, options?.isMainCategoryWithSubs, options?.tagId);
+  }
+
+  const ftsMatch = sanitizeFtsQuery(trimmed);
+  if (!ftsMatch) {
+    return getNotes(options?.categoryId, options?.isMainCategoryWithSubs, options?.tagId);
+  }
+
+  const categoryId = options?.categoryId;
+  const tagId = options?.tagId;
+  const isMainCategoryWithSubs = options?.isMainCategoryWithSubs ?? false;
+
+  let querySql = `
+    SELECT 
+      n.*,
+      c.name AS category_name,
+      ${NOTE_TAGS_JSON_SUBQUERY}
+    FROM Notes_FTS fts
+    JOIN Notes n ON fts.id = n.id
+    LEFT JOIN Note_Categories c ON n.category_id = c.id
+  `;
+
+  const params: any[] = [];
+  const conditions: string[] = ['Notes_FTS MATCH ?'];
+
+  if (tagId) {
+    querySql += ` JOIN Note_Tags filter_nt ON filter_nt.note_id = n.id AND filter_nt.tag_id = ? `;
+    params.push(tagId);
+  }
+
+  params.push(ftsMatch);
+  appendCategoryCondition(conditions, params, categoryId, isMainCategoryWithSubs);
+
+  querySql += ` WHERE ` + conditions.join(' AND ');
+  querySql += ` ORDER BY bm25(Notes_FTS), n.is_pinned DESC, n.updated_at DESC;`;
+
+  try {
+    const rows = db.getAllSync<Note & { tags_json?: string }>(querySql, params);
+    return parseNoteRows(rows);
+  } catch (err) {
+    console.warn('Error en MATCH FTS5, recurriendo a búsqueda de respaldo:', err);
+    return fallbackLikeSearch(trimmed, options);
+  }
+}
+
+export async function searchNotesAsync(
+  query: string,
+  options?: SearchNotesOptions
+): Promise<Note[]> {
+  return searchNotes(query, options);
+}
+
+function fallbackLikeSearch(query: string, options?: SearchNotesOptions): Note[] {
+  const categoryId = options?.categoryId;
+  const tagId = options?.tagId;
+  const isMainCategoryWithSubs = options?.isMainCategoryWithSubs ?? false;
+
+  let querySql = `
+    SELECT 
+      n.*,
+      c.name AS category_name,
+      ${NOTE_TAGS_JSON_SUBQUERY}
+    FROM Notes n
+    LEFT JOIN Note_Categories c ON n.category_id = c.id
+  `;
+
+  const params: any[] = [];
+  const conditions: string[] = ['(n.title LIKE ? OR n.content LIKE ?)'];
+
+  if (tagId) {
+    querySql += ` JOIN Note_Tags filter_nt ON filter_nt.note_id = n.id AND filter_nt.tag_id = ? `;
+    params.push(tagId);
+  }
+
+  params.push(`%${query}%`, `%${query}%`);
+  appendCategoryCondition(conditions, params, categoryId, isMainCategoryWithSubs);
+
+  querySql += ` WHERE ` + conditions.join(' AND ');
+  querySql += ` ORDER BY n.is_pinned DESC, n.updated_at DESC;`;
+
+  const rows = db.getAllSync<Note & { tags_json?: string }>(querySql, params);
+  return parseNoteRows(rows);
 }
 
 export function getNoteById(id: string): Note | null {
-  return db.getFirstSync<Note>(`
+  const row = db.getFirstSync<Note & { tags_json?: string }>(
+    `
     SELECT 
       n.*,
-      c.name AS category_name
+      c.name AS category_name,
+      ${NOTE_TAGS_JSON_SUBQUERY}
     FROM Notes n
     LEFT JOIN Note_Categories c ON n.category_id = c.id
     WHERE n.id = ?;
-  `, [id]);
+  `,
+    [id]
+  );
+
+  if (!row) return null;
+  return parseNoteRows([row])[0];
 }
+
+const INSERT_NOTE_SQL = `
+  INSERT INTO Notes (id, category_id, title, content, is_pinned, created_at, updated_at)
+  VALUES (?, ?, ?, ?, ?, datetime('now', 'localtime'), datetime('now', 'localtime'));
+`;
 
 export function createNote(
   categoryId: string,
   title: string,
   content = '',
-  isPinned = false
+  isPinned = false,
+  presetId?: string
 ): string {
-  const id = generateUUID();
-  const pinnedVal = isPinned ? 1 : 0;
-  db.runSync(
-    `INSERT INTO Notes (id, category_id, title, content, is_pinned, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, datetime('now', 'localtime'), datetime('now', 'localtime'));`,
-    [id, categoryId, title, content, pinnedVal]
-  );
+  const id = presetId || generateUUID();
+  db.runSync(INSERT_NOTE_SQL, [id, categoryId, title, content, isPinned ? 1 : 0]);
   return id;
+}
+
+export async function createNoteAsync(
+  categoryId: string,
+  title: string,
+  content = '',
+  isPinned = false,
+  presetId?: string
+): Promise<string> {
+  const id = presetId || generateUUID();
+  await db.runAsync(INSERT_NOTE_SQL, [id, categoryId, title, content, isPinned ? 1 : 0]);
+  return id;
+}
+
+function buildUpdateNoteStatement(
+  id: string,
+  title: string,
+  content: string,
+  categoryId?: string,
+  isPinned?: boolean
+): { sql: string; params: any[] } {
+  const sets = ['title = ?', 'content = ?', "updated_at = datetime('now', 'localtime')"];
+  const params: any[] = [title, content];
+
+  if (categoryId !== undefined) {
+    sets.push('category_id = ?');
+    params.push(categoryId);
+  }
+  if (isPinned !== undefined) {
+    sets.push('is_pinned = ?');
+    params.push(isPinned ? 1 : 0);
+  }
+
+  params.push(id);
+  return {
+    sql: `UPDATE Notes SET ${sets.join(', ')} WHERE id = ?;`,
+    params,
+  };
 }
 
 export function updateNote(
@@ -938,29 +1232,19 @@ export function updateNote(
   categoryId?: string,
   isPinned?: boolean
 ): void {
-  if (categoryId !== undefined && isPinned !== undefined) {
-    const pinnedVal = isPinned ? 1 : 0;
-    db.runSync(
-      `UPDATE Notes 
-       SET title = ?, content = ?, category_id = ?, is_pinned = ?, updated_at = datetime('now', 'localtime') 
-       WHERE id = ?;`,
-      [title, content, categoryId, pinnedVal, id]
-    );
-  } else if (categoryId !== undefined) {
-    db.runSync(
-      `UPDATE Notes 
-       SET title = ?, content = ?, category_id = ?, updated_at = datetime('now', 'localtime') 
-       WHERE id = ?;`,
-      [title, content, categoryId, id]
-    );
-  } else {
-    db.runSync(
-      `UPDATE Notes 
-       SET title = ?, content = ?, updated_at = datetime('now', 'localtime') 
-       WHERE id = ?;`,
-      [title, content, id]
-    );
-  }
+  const { sql, params } = buildUpdateNoteStatement(id, title, content, categoryId, isPinned);
+  db.runSync(sql, params);
+}
+
+export async function updateNoteAsync(
+  id: string,
+  title: string,
+  content: string,
+  categoryId?: string,
+  isPinned?: boolean
+): Promise<void> {
+  const { sql, params } = buildUpdateNoteStatement(id, title, content, categoryId, isPinned);
+  await db.runAsync(sql, params);
 }
 
 export function toggleNotePinned(id: string): void {

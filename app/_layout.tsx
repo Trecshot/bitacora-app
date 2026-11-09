@@ -3,34 +3,29 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { initDatabase } from '../src/db/database';
+import { ThemeProvider, useTheme } from '../src/theme/ThemeContext';
 import '../global.css';
 
-export default function RootLayout() {
-  useEffect(() => {
-    try {
-      initDatabase();
-    } catch (error) {
-      console.error('Error inicializando base de datos SQLite:', error);
-    }
-  }, []);
+function ThemedNavigation() {
+  const { theme } = useTheme();
 
   return (
-    <GestureHandlerRootView style={{ flex: 1 }}>
-      <StatusBar style="dark" />
+    <>
+      <StatusBar style={theme.statusBarStyle} />
       <Stack
         screenOptions={{
           headerStyle: {
-            backgroundColor: '#FFFFFF',
+            backgroundColor: theme.colors.surface,
           },
           headerShadowVisible: false,
           headerTitleStyle: {
-            fontWeight: '700',
-            fontSize: 18,
-            color: '#1E293B',
+            fontWeight: theme.typography.titleWeight,
+            fontSize: 17,
+            color: theme.colors.text,
           },
-          headerTintColor: '#2563EB',
+          headerTintColor: theme.colors.accent,
           contentStyle: {
-            backgroundColor: '#F8FAFC',
+            backgroundColor: theme.colors.background,
           },
         }}
       >
@@ -57,6 +52,24 @@ export default function RootLayout() {
           }}
         />
       </Stack>
+    </>
+  );
+}
+
+export default function RootLayout() {
+  useEffect(() => {
+    try {
+      initDatabase();
+    } catch (error) {
+      console.error('Error inicializando base de datos SQLite:', error);
+    }
+  }, []);
+
+  return (
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <ThemeProvider initialMode="light">
+        <ThemedNavigation />
+      </ThemeProvider>
     </GestureHandlerRootView>
   );
 }

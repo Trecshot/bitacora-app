@@ -1,7 +1,6 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Platform } from 'react-native';
+import { View, Text, TouchableOpacity } from 'react-native';
 import { GestureDetector, Gesture } from 'react-native-gesture-handler';
-import * as Haptics from 'expo-haptics';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -18,6 +17,9 @@ import {
   AlertTriangle,
 } from 'lucide-react-native';
 import { Folder } from '../db/database';
+import { DEFAULT_FOLDER_COLOR } from '../utils/dateAndTaskUtils';
+import { triggerHapticImpact } from '../utils/haptics';
+import { useTheme } from '../theme/ThemeContext';
 
 interface FolderCardProps {
   folder: Folder;
@@ -30,19 +32,14 @@ const SWIPE_THRESHOLD = -45;
 const FULL_SWIPE_DELETE_THRESHOLD = -170;
 
 export const FolderCard: React.FC<FolderCardProps> = ({ folder, onPress, onDelete }) => {
-  const accentColor = folder.color || '#3B82F6';
+  const { theme } = useTheme();
+  const accentColor = folder.color || DEFAULT_FOLDER_COLOR;
   const staleCount = folder.stale_task_count ?? 0;
   const translateX = useSharedValue(0);
   const startX = useSharedValue(0);
 
-  const triggerHaptic = () => {
-    if (Platform.OS !== 'web') {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-    }
-  };
-
   const handleConfirmDelete = () => {
-    triggerHaptic();
+    triggerHapticImpact();
     translateX.value = withSpring(0, { damping: 20, stiffness: 220 });
     if (onDelete) {
       onDelete(folder.id);
@@ -69,7 +66,7 @@ export const FolderCard: React.FC<FolderCardProps> = ({ folder, onPress, onDelet
         runOnJS(handleConfirmDelete)();
       } else if (translateX.value < SWIPE_THRESHOLD) {
         translateX.value = withSpring(SWIPE_OPEN_WIDTH, { damping: 18, stiffness: 220 });
-        runOnJS(triggerHaptic)();
+        runOnJS(triggerHapticImpact)();
       } else {
         translateX.value = withSpring(0, { damping: 20, stiffness: 240 });
       }
@@ -111,79 +108,142 @@ export const FolderCard: React.FC<FolderCardProps> = ({ folder, onPress, onDelet
   };
 
   return (
-    <View className="mb-3 relative rounded-2xl overflow-hidden bg-rose-600">
+    <View
+      style={{
+        marginBottom: 12,
+        position: 'relative',
+        borderRadius: theme.metrics.radii.lg,
+        overflow: 'hidden',
+        backgroundColor: theme.colors.danger,
+      }}
+    >
       {/* Fondo de Acción: Swipe to Delete */}
       {onDelete && (
         <Animated.View
-          style={[animatedDeleteActionStyle]}
-          className="absolute right-0 top-0 bottom-0 w-[92px] items-center justify-center"
+          style={[
+            animatedDeleteActionStyle,
+            {
+              position: 'absolute',
+              right: 0,
+              top: 0,
+              bottom: 0,
+              width: 92,
+              alignItems: 'center',
+              justifyContent: 'center',
+            },
+          ]}
         >
           <TouchableOpacity
             activeOpacity={0.8}
             onPress={handleConfirmDelete}
-            className="w-full h-full items-center justify-center px-2"
+            style={{
+              width: '100%',
+              height: '100%',
+              alignItems: 'center',
+              justifyContent: 'center',
+              paddingHorizontal: 8,
+            }}
           >
             <Trash2 size={18} color="#FFFFFF" />
-            <Text className="text-[11px] font-bold text-white mt-1">Eliminar</Text>
+            <Text style={{ fontSize: 11, fontWeight: '700', color: '#FFFFFF', marginTop: 4 }}>
+              Eliminar
+            </Text>
           </TouchableOpacity>
         </Animated.View>
       )}
 
-      {/* Tarjeta Deslizable */}
+      {/* Tarjeta Deslizable con Estilo de Tema */}
       <GestureDetector gesture={panGesture}>
-        <Animated.View style={[animatedCardStyle, styles.cardShadow]}>
+        <Animated.View style={[animatedCardStyle, theme.cardStyle]}>
           <TouchableOpacity
             activeOpacity={0.85}
             onPress={handleCardPress}
-            className={`bg-white rounded-2xl p-4 border flex-row items-center justify-between ${
-              staleCount > 0 ? 'border-amber-300/90' : 'border-slate-100'
-            }`}
+            style={{
+              padding: 14,
+              borderRadius: theme.metrics.radii.lg,
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              backgroundColor: theme.colors.surface,
+              borderColor:
+                staleCount > 0 ? theme.colors.warning : theme.colors.border,
+              borderWidth: theme.metrics.borderWidth,
+            }}
           >
-            <View className="flex-row items-center flex-1 mr-4">
+            <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, marginRight: 16 }}>
               {/* Icon Container con color dinámico */}
               <View
-                className="w-12 h-12 rounded-xl items-center justify-center mr-3.5"
-                style={{ backgroundColor: `${accentColor}18` }}
+                style={{
+                  width: 44,
+                  height: 44,
+                  borderRadius: theme.metrics.radii.md,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  marginRight: 14,
+                  backgroundColor: `${accentColor}18`,
+                }}
               >
-                <FolderIcon size={24} color={accentColor} />
+                <FolderIcon size={22} color={accentColor} />
               </View>
 
               {/* Textos informativos */}
-              <View className="flex-1">
-                <View className="flex-row items-center">
+              <View style={{ flex: 1 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                   <Text
-                    className="text-base font-semibold text-slate-800 flex-shrink"
+                    style={{
+                      fontSize: 15,
+                      fontWeight: theme.typography.titleWeight,
+                      color: theme.colors.text,
+                      flexShrink: 1,
+                    }}
                     numberOfLines={1}
                   >
                     {folder.name}
                   </Text>
                   <View
-                    className="w-2.5 h-2.5 rounded-full ml-2"
-                    style={{ backgroundColor: accentColor }}
+                    style={{
+                      width: 8,
+                      height: 8,
+                      borderRadius: theme.metrics.radii.full,
+                      marginLeft: 8,
+                      backgroundColor: accentColor,
+                    }}
                   />
                 </View>
 
-                <View className="flex-row items-center mt-1 flex-wrap">
-                  <View className="flex-row items-center mr-3.5">
-                    <CheckSquare size={13} color="#94A3B8" />
-                    <Text className="text-xs text-slate-500 ml-1 font-medium">
+                <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4, flexWrap: 'wrap' }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', marginRight: 14 }}>
+                    <CheckSquare size={13} color={theme.colors.textMuted} />
+                    <Text style={{ fontSize: 12, color: theme.colors.textMuted, marginLeft: 4, fontWeight: '500' }}>
                       {folder.task_count ?? 0} tareas
                     </Text>
                   </View>
                   {(folder.subfolder_count ?? 0) > 0 && (
-                    <View className="flex-row items-center mr-3.5">
-                      <FolderIcon size={12} color="#94A3B8" />
-                      <Text className="text-xs text-slate-500 ml-1 font-medium">
+                    <View style={{ flexDirection: 'row', alignItems: 'center', marginRight: 14 }}>
+                      <FolderIcon size={12} color={theme.colors.textMuted} />
+                      <Text style={{ fontSize: 12, color: theme.colors.textMuted, marginLeft: 4, fontWeight: '500' }}>
                         {folder.subfolder_count} subcarpetas
                       </Text>
                     </View>
                   )}
 
-                  {/* Alerta visual de Métricas de Estancamiento (Stale Tasks > 7 días) */}
+                  {/* Alerta visual de Métricas de Estancamiento */}
                   {staleCount > 0 && (
-                    <View className="flex-row items-center bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200 mt-0.5">
-                      <AlertTriangle size={11} color="#D97706" />
-                      <Text className="text-[10px] font-bold text-amber-700 ml-1">
+                    <View
+                      style={{
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        backgroundColor: theme.colors.warningSubtle,
+                        borderColor: theme.colors.warning,
+                        borderWidth: 1,
+                        paddingHorizontal: 8,
+                        paddingVertical: 2,
+                        borderRadius: theme.metrics.radii.full,
+                        marginTop: 2,
+                      }}
+                    >
+                      <AlertTriangle size={11} color={theme.colors.warning} />
+                      <Text style={{ fontSize: 10, fontWeight: '700', color: theme.colors.warning, marginLeft: 4 }}>
                         {staleCount} estancada{staleCount === 1 ? '' : 's'} (&gt;7d)
                       </Text>
                     </View>
@@ -192,9 +252,9 @@ export const FolderCard: React.FC<FolderCardProps> = ({ folder, onPress, onDelet
               </View>
             </View>
 
-            {/* Indicador de navegación con área de separación holgada */}
-            <View className="pl-3 pr-1 py-2 items-center justify-center">
-              <ChevronRight size={20} color="#94A3B8" />
+            {/* Indicador de navegación */}
+            <View style={{ paddingLeft: 8, paddingRight: 4, alignItems: 'center', justifyContent: 'center' }}>
+              <ChevronRight size={18} color={theme.colors.textMuted} />
             </View>
           </TouchableOpacity>
         </Animated.View>
@@ -202,13 +262,3 @@ export const FolderCard: React.FC<FolderCardProps> = ({ folder, onPress, onDelet
     </View>
   );
 };
-
-const styles = StyleSheet.create({
-  cardShadow: {
-    shadowColor: '#64748B',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
-    shadowRadius: 8,
-    elevation: 2,
-  },
-});

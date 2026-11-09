@@ -11,6 +11,7 @@ import {
   restoreTaskAsync,
   hardDeleteTaskAsync,
 } from '../db/database';
+import { formatDateOnlyOffset } from '../utils/dateAndTaskUtils';
 
 // Mapa de timers de debounce por tarea para diferir escrituras SQLite
 // hasta que la animación de caída (drop) en el UI Thread haya finalizado.
@@ -36,9 +37,7 @@ export function filterTasksByCriteria(
   selectedPriorities: TaskPriority[],
   dueDateFilter: DueDateFilter
 ): Task[] {
-  const now = new Date();
-  const pad = (n: number) => String(n).padStart(2, '0');
-  const todayStr = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+  const todayStr = formatDateOnlyOffset(0);
 
   return tasks.filter((task) => {
     // 1. Predicado de Prioridades apilables (si hay al menos una seleccionada)
@@ -230,6 +229,7 @@ export const useKanbanStore = create<KanbanStoreState>((set, get) => ({
   ) => {
     const previousTasks = get().tasks;
     const tempId = -Date.now();
+    const nowIso = new Date().toISOString();
     const optimisticTask: Task = {
       id: tempId,
       folder_id: folderId,
@@ -239,8 +239,8 @@ export const useKanbanStore = create<KanbanStoreState>((set, get) => ({
       priority,
       due_date: dueDate,
       is_deleted: 0,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
+      created_at: nowIso,
+      updated_at: nowIso,
     };
 
     // Actualización inmediata

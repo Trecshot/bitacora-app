@@ -1,89 +1,40 @@
-// Generador de UUID v4 estándar para Note_Categories y Notes
-export function generateUUID(): string {
-  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
-    const r = (Math.random() * 16) | 0;
-    const v = c === 'x' ? r : (r & 0x3) | 0x8;
-    return v.toString(16);
-  });
-}
+import {
+  Folder,
+  Task,
+  TaskStatus,
+  TaskPriority,
+  AuditLog,
+  NoteCategory,
+  Tag,
+  NoteTag,
+  Note,
+  SearchNotesOptions,
+} from './types';
+import {
+  generateUUID,
+  SEED_FOLDERS_DATA,
+  SEED_TAGS_DATA,
+} from './seedData';
+import {
+  DEFAULT_FOLDER_COLOR,
+  formatDateTimeOffset,
+  formatDateOnlyOffset,
+  isTaskStale,
+} from '../utils/dateAndTaskUtils';
 
-// -----------------------------------------------------------------------------
-// Interfaces del Módulo de Proyectos (Kanban & Folders)
-// -----------------------------------------------------------------------------
-export interface Folder {
-  id: number;
-  name: string;
-  description?: string;
-  parent_id: number | null;
-  color?: string;
-  icon?: string;
-  created_at?: string;
-  updated_at?: string;
-  task_count?: number;
-  subfolder_count?: number;
-  stale_task_count?: number;
-  depth?: number;
-}
-
-export type TaskStatus = 'TODO' | 'IN_PROGRESS' | 'DONE';
-export type TaskPriority = 'LOW' | 'MEDIUM' | 'HIGH';
-
-export interface Task {
-  id: number;
-  folder_id: number;
-  title: string;
-  description?: string;
-  status: TaskStatus;
-  priority: TaskPriority;
-  due_date?: string | null;
-  is_deleted?: number;
-  created_at?: string;
-  updated_at?: string;
-}
-
-export interface AuditLog {
-  id: number;
-  entity_type: 'FOLDER' | 'TASK';
-  entity_id: number;
-  folder_id?: number | null;
-  task_id?: number | null;
-  action:
-    | 'CREATE'
-    | 'UPDATE'
-    | 'STATUS_CHANGE'
-    | 'PRIORITY_CHANGE'
-    | 'STATUS_TRIGGER'
-    | 'PRIORITY_TRIGGER'
-    | 'SOFT_DELETE'
-    | 'RESTORE'
-    | 'DELETE';
-  old_value: string | null;
-  new_value: string | null;
-  timestamp: string;
-}
-
-// -----------------------------------------------------------------------------
-// Interfaces del Módulo de Notas
-// -----------------------------------------------------------------------------
-export interface NoteCategory {
-  id: string; // UUID
-  parent_id: string | null; // UUID
-  name: string;
-  created_at?: string;
-  subcategories_count?: number;
-  notes_count?: number;
-}
-
-export interface Note {
-  id: string; // UUID
-  category_id: string; // UUID
-  category_name?: string;
-  title: string;
-  content: string;
-  is_pinned: number; // 0 o 1
-  created_at?: string;
-  updated_at?: string;
-}
+export type {
+  Folder,
+  Task,
+  TaskStatus,
+  TaskPriority,
+  AuditLog,
+  NoteCategory,
+  Tag,
+  NoteTag,
+  Note,
+  SearchNotesOptions,
+};
+export { generateUUID };
 
 // -----------------------------------------------------------------------------
 // Almacenamiento en Memoria / LocalStorage para Web y SSR
@@ -93,34 +44,12 @@ let inMemoryTasks: Task[] = [];
 let inMemoryAuditLogs: AuditLog[] = [];
 let inMemoryCategories: NoteCategory[] = [];
 let inMemoryNotes: Note[] = [];
+let inMemoryTags: Tag[] = [];
+let inMemoryNoteTags: NoteTag[] = [];
 let isInitialized = false;
-
-function formatDateTimeOffset(daysOffset = 0): string {
-  const date = new Date(Date.now() + daysOffset * 86400000);
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(
-    date.getHours()
-  )}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
-}
-
-function formatDateOnlyOffset(daysOffset = 0): string {
-  const date = new Date(Date.now() + daysOffset * 86400000);
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
-}
 
 function getNow(): string {
   return formatDateTimeOffset(0);
-}
-
-function isTaskStale(task: Task): boolean {
-  if ((task.is_deleted ?? 0) !== 0) return false;
-  if (task.status !== 'IN_PROGRESS') return false;
-  if (!task.updated_at) return false;
-  const updatedMs = new Date(task.updated_at.replace(' ', 'T')).getTime();
-  if (Number.isNaN(updatedMs)) return false;
-  const sevenDaysAgoMs = Date.now() - 7 * 86400000;
-  return updatedMs < sevenDaysAgoMs;
 }
 
 export const db = {
@@ -135,40 +64,16 @@ export function initDatabase(): void {
   isInitialized = true;
 
   // Semilla de Proyectos
-  inMemoryFolders = [
-    {
-      id: 1,
-      name: 'Proyecto Principal',
-      description:
-        '# Visión del Proyecto\nEste espacio centraliza las tareas, hitos y notas clave de la bitácora.\n\n- **Objetivo**: Optimizar la productividad y organización.\n- **Metodología**: Tablero Kanban interactivo con persistencia local SQLite.',
-      parent_id: null,
-      color: '#3B82F6',
-      icon: 'folder-kanban',
-      created_at: formatDateTimeOffset(-10),
-      updated_at: getNow(),
-    },
-    {
-      id: 2,
-      name: 'Documentación & Notas',
-      description:
-        'Documentación técnica del sistema, guías y especificaciones de arquitectura.',
-      parent_id: null,
-      color: '#10B981',
-      icon: 'book-open',
-      created_at: formatDateTimeOffset(-5),
-      updated_at: getNow(),
-    },
-    {
-      id: 3,
-      name: 'Diseño UI/UX',
-      description: 'Bocetos, patrones de componentes y guías de estilos para la aplicación.',
-      parent_id: null,
-      color: '#8B5CF6',
-      icon: 'palette',
-      created_at: formatDateTimeOffset(-3),
-      updated_at: getNow(),
-    },
-  ];
+  inMemoryFolders = SEED_FOLDERS_DATA.map((seed, index) => ({
+    id: index + 1,
+    name: seed.name,
+    description: seed.description,
+    parent_id: null,
+    color: seed.color,
+    icon: seed.icon,
+    created_at: formatDateTimeOffset(seed.createdDaysOffset),
+    updated_at: getNow(),
+  }));
 
   inMemoryTasks = [
     {
@@ -319,6 +224,29 @@ export function initDatabase(): void {
       updated_at: getNow(),
     },
   ];
+
+  // Semilla de Etiquetas (Tags) y relaciones Note_Tags
+  inMemoryTags = SEED_TAGS_DATA.map((t) => ({
+    id: generateUUID(),
+    name: t.name,
+    color: t.color,
+    created_at: getNow(),
+  }));
+
+  if (inMemoryNotes.length >= 2 && inMemoryTags.length >= 5) {
+    const [tagUrgente, tagTrabajo, tagIdeas, , tagPersonal] = inMemoryTags;
+    inMemoryNoteTags = [
+      { note_id: inMemoryNotes[0].id, tag_id: tagIdeas.id, created_at: getNow() },
+      { note_id: inMemoryNotes[0].id, tag_id: tagPersonal.id, created_at: getNow() },
+      { note_id: inMemoryNotes[1].id, tag_id: tagTrabajo.id, created_at: getNow() },
+    ];
+    if (inMemoryNotes.length >= 3) {
+      inMemoryNoteTags.push(
+        { note_id: inMemoryNotes[2].id, tag_id: tagUrgente.id, created_at: getNow() },
+        { note_id: inMemoryNotes[2].id, tag_id: tagPersonal.id, created_at: getNow() }
+      );
+    }
+  }
 }
 
 // -----------------------------------------------------------------------------
@@ -410,9 +338,9 @@ export function createFolder(
   let resolvedColor = color;
   if (!resolvedColor && parentId !== null) {
     const parentFolder = inMemoryFolders.find((f) => f.id === parentId);
-    resolvedColor = parentFolder?.color || '#3B82F6';
+    resolvedColor = parentFolder?.color || DEFAULT_FOLDER_COLOR;
   }
-  const finalColor = resolvedColor || '#3B82F6';
+  const finalColor = resolvedColor || DEFAULT_FOLDER_COLOR;
 
   const id = inMemoryFolders.length > 0 ? Math.max(...inMemoryFolders.map((f) => f.id)) + 1 : 1;
   const newFolder: Folder = {
@@ -461,7 +389,10 @@ export function updateFolderDescription(id: number, description: string): void {
   }
 }
 
-export async function updateFolderDescriptionAsync(id: number, description: string): Promise<void> {
+export async function updateFolderDescriptionAsync(
+  id: number,
+  description: string
+): Promise<void> {
   updateFolderDescription(id, description);
 }
 
@@ -770,9 +701,80 @@ export function deleteNoteCategory(id: string): void {
   inMemoryNotes = inMemoryNotes.filter((n) => !targetIds.includes(n.category_id));
 }
 
-export function getNotes(categoryId?: string | null, isMainCategoryWithSubs = false): Note[] {
+export function getAllTags(): Tag[] {
+  initDatabase();
+  return [...inMemoryTags].sort((a, b) => a.name.localeCompare(b.name));
+}
+
+export function createTag(name: string, color = DEFAULT_FOLDER_COLOR): Tag {
+  initDatabase();
+  const trimmed = name.trim();
+  const existing = inMemoryTags.find((t) => t.name.toLowerCase() === trimmed.toLowerCase());
+  if (existing) return existing;
+
+  const newTag: Tag = {
+    id: generateUUID(),
+    name: trimmed,
+    color,
+    created_at: getNow(),
+  };
+  inMemoryTags.push(newTag);
+  return newTag;
+}
+
+export function deleteTag(id: string): void {
+  initDatabase();
+  inMemoryTags = inMemoryTags.filter((t) => t.id !== id);
+  inMemoryNoteTags = inMemoryNoteTags.filter((nt) => nt.tag_id !== id);
+}
+
+export function getNoteTags(noteId: string): Tag[] {
+  initDatabase();
+  const tagIds = inMemoryNoteTags.filter((nt) => nt.note_id === noteId).map((nt) => nt.tag_id);
+  return inMemoryTags.filter((t) => tagIds.includes(t.id));
+}
+
+export function setNoteTags(noteId: string, tagIds: string[]): void {
+  initDatabase();
+  inMemoryNoteTags = inMemoryNoteTags.filter((nt) => nt.note_id !== noteId);
+  for (const tagId of tagIds) {
+    inMemoryNoteTags.push({ note_id: noteId, tag_id: tagId, created_at: getNow() });
+  }
+}
+
+export async function setNoteTagsAsync(noteId: string, tagIds: string[]): Promise<void> {
+  setNoteTags(noteId, tagIds);
+}
+
+export function getNotesByTag(tagId: string): Note[] {
+  return getNotes(null, false, tagId);
+}
+
+function enrichNoteWithTags(note: Note): Note {
+  const noteTagIds = inMemoryNoteTags
+    .filter((nt) => nt.note_id === note.id)
+    .map((nt) => nt.tag_id);
+  const tags = inMemoryTags.filter((t) => noteTagIds.includes(t.id));
+  return {
+    ...note,
+    tags,
+  };
+}
+
+export function getNotes(
+  categoryId?: string | null,
+  isMainCategoryWithSubs = false,
+  tagId?: string | null
+): Note[] {
   initDatabase();
   let filtered = [...inMemoryNotes];
+
+  if (tagId) {
+    const matchingNoteIds = inMemoryNoteTags
+      .filter((nt) => nt.tag_id === tagId)
+      .map((nt) => nt.note_id);
+    filtered = filtered.filter((n) => matchingNoteIds.includes(n.id));
+  }
 
   if (categoryId && categoryId !== 'ALL') {
     if (isMainCategoryWithSubs) {
@@ -787,27 +789,61 @@ export function getNotes(categoryId?: string | null, isMainCategoryWithSubs = fa
     }
   }
 
-  return filtered.sort((a, b) => {
-    if (b.is_pinned !== a.is_pinned) {
-      return b.is_pinned - a.is_pinned;
-    }
-    return (b.updated_at || '').localeCompare(a.updated_at || '');
+  return filtered
+    .map(enrichNoteWithTags)
+    .sort((a, b) => {
+      if (b.is_pinned !== a.is_pinned) {
+        return b.is_pinned - a.is_pinned;
+      }
+      return (b.updated_at || '').localeCompare(a.updated_at || '');
+    });
+}
+
+export function searchNotes(query: string, options?: SearchNotesOptions): Note[] {
+  initDatabase();
+  const trimmed = query.trim().toLowerCase();
+  if (!trimmed) {
+    return getNotes(options?.categoryId, options?.isMainCategoryWithSubs, options?.tagId);
+  }
+
+  const candidates = getNotes(
+    options?.categoryId,
+    options?.isMainCategoryWithSubs,
+    options?.tagId
+  );
+  const tokens = trimmed.split(/\s+/).filter(Boolean);
+
+  return candidates.filter((n) => {
+    const title = (n.title || '').toLowerCase();
+    const content = (n.content || '').toLowerCase();
+    // Emulación de FTS5 MATCH con operadores de prefijo / token
+    return tokens.every((token) => title.includes(token) || content.includes(token));
   });
+}
+
+export async function searchNotesAsync(
+  query: string,
+  options?: SearchNotesOptions
+): Promise<Note[]> {
+  return searchNotes(query, options);
 }
 
 export function getNoteById(id: string): Note | null {
   initDatabase();
-  return inMemoryNotes.find((n) => n.id === id) || null;
+  const note = inMemoryNotes.find((n) => n.id === id);
+  if (!note) return null;
+  return enrichNoteWithTags(note);
 }
 
 export function createNote(
   categoryId: string,
   title: string,
   content = '',
-  isPinned = false
+  isPinned = false,
+  presetId?: string
 ): string {
   initDatabase();
-  const id = generateUUID();
+  const id = presetId || generateUUID();
   const category = inMemoryCategories.find((c) => c.id === categoryId);
   const newNote: Note = {
     id,
@@ -818,9 +854,20 @@ export function createNote(
     is_pinned: isPinned ? 1 : 0,
     created_at: getNow(),
     updated_at: getNow(),
+    tags: [],
   };
   inMemoryNotes.push(newNote);
   return id;
+}
+
+export async function createNoteAsync(
+  categoryId: string,
+  title: string,
+  content = '',
+  isPinned = false,
+  presetId?: string
+): Promise<string> {
+  return createNote(categoryId, title, content, isPinned, presetId);
 }
 
 export function updateNote(
@@ -847,6 +894,16 @@ export function updateNote(
   }
 }
 
+export async function updateNoteAsync(
+  id: string,
+  title: string,
+  content: string,
+  categoryId?: string,
+  isPinned?: boolean
+): Promise<void> {
+  updateNote(id, title, content, categoryId, isPinned);
+}
+
 export function toggleNotePinned(id: string): void {
   initDatabase();
   const note = inMemoryNotes.find((n) => n.id === id);
@@ -859,4 +916,5 @@ export function toggleNotePinned(id: string): void {
 export function deleteNote(id: string): void {
   initDatabase();
   inMemoryNotes = inMemoryNotes.filter((n) => n.id !== id);
+  inMemoryNoteTags = inMemoryNoteTags.filter((nt) => nt.note_id !== id);
 }

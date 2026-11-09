@@ -1,4 +1,5 @@
 import { AuditLog, TaskStatus, TaskPriority } from '../db/database';
+import { MS_PER_DAY } from './dateAndTaskUtils';
 
 export interface RawAuditTriggerLog {
   id?: string | number;
@@ -232,8 +233,8 @@ export function getRelativeDateBucket(
 
   const now = new Date();
   const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-  const startOfYesterday = startOfToday - 86400000;
-  const startOfLastWeek = startOfToday - 7 * 86400000;
+  const startOfYesterday = startOfToday - MS_PER_DAY;
+  const startOfLastWeek = startOfToday - 7 * MS_PER_DAY;
 
   const logTime = logDate.getTime();
   if (logTime >= startOfToday) {

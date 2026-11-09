@@ -21,6 +21,7 @@ import {
 } from 'lucide-react-native';
 import { Task, TaskStatus } from '../db/database';
 import { OptimizedKanbanCard } from './OptimizedKanbanCard';
+import { useTheme } from '../theme/ThemeContext';
 
 interface KanbanBoardViewProps {
   tasks: Task[];
@@ -33,46 +34,13 @@ const EDGE_THRESHOLD_RATIO = 0.1; // 10% del margen horizontal de la pantalla
 const AUTO_SCROLL_STEP_PX = 180;
 const AUTO_SCROLL_INTERVAL_MS = 220;
 
-const COLUMNS: {
-  id: TaskStatus;
-  title: string;
-  badgeBg: string;
-  badgeText: string;
-  headerBorder: string;
-  icon: React.ReactNode;
-}[] = [
-  {
-    id: 'TODO',
-    title: 'Por Hacer',
-    badgeBg: 'bg-slate-200',
-    badgeText: 'text-slate-700',
-    headerBorder: 'border-slate-300',
-    icon: <Circle size={15} color="#64748B" />,
-  },
-  {
-    id: 'IN_PROGRESS',
-    title: 'En Progreso',
-    badgeBg: 'bg-amber-100',
-    badgeText: 'text-amber-800',
-    headerBorder: 'border-amber-400',
-    icon: <Clock size={15} color="#D97706" />,
-  },
-  {
-    id: 'DONE',
-    title: 'Completado',
-    badgeBg: 'bg-emerald-100',
-    badgeText: 'text-emerald-800',
-    headerBorder: 'border-emerald-400',
-    icon: <CheckCircle2 size={15} color="#059669" />,
-  },
-];
-
 export const KanbanBoardView: React.FC<KanbanBoardViewProps> = ({
   tasks,
   onMoveStatus,
   onDeleteTask,
   onOpenCreateTask,
 }) => {
+  const { theme } = useTheme();
   const scrollViewRef = useRef<React.ComponentRef<typeof ScrollView>>(null);
   const currentScrollXRef = useRef(0);
   const contentWidthRef = useRef(0);
@@ -186,23 +154,72 @@ export const KanbanBoardView: React.FC<KanbanBoardViewProps> = ({
     return map;
   }, [tasks]);
 
+  const columnsDef = [
+    {
+      id: 'TODO' as TaskStatus,
+      title: 'Por Hacer',
+      accentColor: theme.colors.textMuted,
+      icon: <Circle size={14} color={theme.colors.textMuted} />,
+    },
+    {
+      id: 'IN_PROGRESS' as TaskStatus,
+      title: 'En Progreso',
+      accentColor: theme.colors.warning,
+      icon: <Clock size={14} color={theme.colors.warning} />,
+    },
+    {
+      id: 'DONE' as TaskStatus,
+      title: 'Completado',
+      accentColor: theme.colors.success,
+      icon: <CheckCircle2 size={14} color={theme.colors.success} />,
+    },
+  ];
+
   return (
-    <View className="relative" onLayout={handleLayout}>
+    <View style={{ position: 'relative' }} onLayout={handleLayout}>
       {/* Indicadores visuales de Edge Scrolling en el 10% de los márgenes */}
       {isDraggingCard && activeEdgeZone === 'LEFT' && (
         <View
           pointerEvents="none"
-          className="absolute left-0 top-0 bottom-6 w-9 z-50 bg-blue-600/20 rounded-r-2xl items-center justify-center border-r border-blue-400/50"
+          style={{
+            position: 'absolute',
+            left: 0,
+            top: 0,
+            bottom: 24,
+            width: 36,
+            zIndex: 50,
+            backgroundColor: `${theme.colors.accent}26`,
+            borderTopRightRadius: 16,
+            borderBottomRightRadius: 16,
+            alignItems: 'center',
+            justifyContent: 'center',
+            borderRightWidth: 1,
+            borderRightColor: theme.colors.accent,
+          }}
         >
-          <ChevronsLeft size={20} color="#2563EB" />
+          <ChevronsLeft size={20} color={theme.colors.accent} />
         </View>
       )}
       {isDraggingCard && activeEdgeZone === 'RIGHT' && (
         <View
           pointerEvents="none"
-          className="absolute right-0 top-0 bottom-6 w-9 z-50 bg-blue-600/20 rounded-l-2xl items-center justify-center border-l border-blue-400/50"
+          style={{
+            position: 'absolute',
+            right: 0,
+            top: 0,
+            bottom: 24,
+            width: 36,
+            zIndex: 50,
+            backgroundColor: `${theme.colors.accent}26`,
+            borderTopLeftRadius: 16,
+            borderBottomLeftRadius: 16,
+            alignItems: 'center',
+            justifyContent: 'center',
+            borderLeftWidth: 1,
+            borderLeftColor: theme.colors.accent,
+          }}
         >
-          <ChevronsRight size={20} color="#2563EB" />
+          <ChevronsRight size={20} color={theme.colors.accent} />
         </View>
       )}
 
@@ -216,26 +233,69 @@ export const KanbanBoardView: React.FC<KanbanBoardViewProps> = ({
           contentWidthRef.current = w;
         }}
         contentContainerStyle={{ paddingHorizontal: 4, paddingBottom: 24 }}
-        className="flex-1"
+        style={{ flex: 1 }}
       >
-        {COLUMNS.map((col) => {
+        {columnsDef.map((col) => {
           const columnTasks = groupedTasks[col.id];
 
           return (
             <View
               key={col.id}
-              className="w-[285px] mr-3 bg-slate-100/90 rounded-3xl p-3 border border-slate-200/80 flex-col"
-              style={{ minHeight: 420, maxHeight: 560 }}
+              style={{
+                width: 285,
+                marginRight: 12,
+                backgroundColor: theme.colors.kanbanColumnBg,
+                borderRadius: theme.metrics.radii.xl,
+                padding: 12,
+                borderColor: theme.colors.border,
+                borderWidth: theme.metrics.borderWidth,
+                flexDirection: 'column',
+                minHeight: 420,
+                maxHeight: 560,
+              }}
             >
               {/* Cabecera de la Columna Kanban */}
               <View
-                className={`flex-row items-center justify-between pb-2.5 mb-2.5 border-b-2 ${col.headerBorder}`}
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  paddingBottom: 10,
+                  marginBottom: 10,
+                  borderBottomWidth: 2,
+                  borderBottomColor: col.accentColor,
+                }}
               >
-                <View className="flex-row items-center">
+                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                   {col.icon}
-                  <Text className="text-sm font-bold text-slate-800 ml-1.5">{col.title}</Text>
-                  <View className={`ml-2 px-2 py-0.5 rounded-full ${col.badgeBg}`}>
-                    <Text className={`text-xs font-bold ${col.badgeText}`}>
+                  <Text
+                    style={{
+                      fontSize: 14,
+                      fontWeight: theme.typography.titleWeight,
+                      color: theme.colors.text,
+                      marginLeft: 6,
+                    }}
+                  >
+                    {col.title}
+                  </Text>
+                  <View
+                    style={{
+                      marginLeft: 8,
+                      paddingHorizontal: 8,
+                      paddingVertical: 2,
+                      borderRadius: theme.metrics.radii.full,
+                      backgroundColor: theme.colors.surfaceElevated,
+                      borderColor: theme.colors.border,
+                      borderWidth: 1,
+                    }}
+                  >
+                    <Text
+                      style={{
+                        fontSize: 11,
+                        fontWeight: '700',
+                        color: theme.colors.textSecondary,
+                      }}
+                    >
                       {columnTasks.length}
                     </Text>
                   </View>
@@ -244,14 +304,23 @@ export const KanbanBoardView: React.FC<KanbanBoardViewProps> = ({
                 {/* Botón rápido para agregar tarea en esta columna */}
                 <TouchableOpacity
                   onPress={() => onOpenCreateTask(col.id)}
-                  className="w-7 h-7 rounded-xl bg-white items-center justify-center border border-slate-200 shadow-sm"
+                  style={{
+                    width: 28,
+                    height: 28,
+                    borderRadius: theme.metrics.radii.md,
+                    backgroundColor: theme.colors.surface,
+                    borderColor: theme.colors.border,
+                    borderWidth: 1,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
                 >
-                  <Plus size={14} color="#334155" />
+                  <Plus size={14} color={theme.colors.textSecondary} />
                 </TouchableOpacity>
               </View>
 
               {/* Virtualización de Columna Kanban mediante Shopify FlashList */}
-              <View className="flex-1" style={{ minHeight: 340 }}>
+              <View style={{ flex: 1, minHeight: 340 }}>
                 <FlashList
                   data={columnTasks}
                   keyExtractor={(item) => item.id.toString()}
@@ -269,24 +338,46 @@ export const KanbanBoardView: React.FC<KanbanBoardViewProps> = ({
                   )}
                   ListEmptyComponent={
                     <View
-                      className={`py-12 items-center justify-center border-2 border-dashed rounded-2xl px-3 mt-2 ${
-                        isDraggingCard
-                          ? 'border-blue-400 bg-blue-50/70'
-                          : 'border-slate-200 bg-white/50'
-                      }`}
+                      style={{
+                        paddingVertical: 40,
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        borderWidth: 1,
+                        borderStyle: 'dashed',
+                        borderColor: isDraggingCard
+                          ? theme.colors.accent
+                          : theme.colors.border,
+                        borderRadius: theme.metrics.radii.lg,
+                        paddingHorizontal: 12,
+                        marginTop: 8,
+                        backgroundColor: isDraggingCard
+                          ? theme.colors.accentSubtle
+                          : 'transparent',
+                      }}
                     >
                       <MoveHorizontal
                         size={18}
-                        color={isDraggingCard ? '#2563EB' : '#94A3B8'}
+                        color={isDraggingCard ? theme.colors.accent : theme.colors.textMuted}
                       />
                       <Text
-                        className={`text-xs font-semibold text-center mt-1.5 ${
-                          isDraggingCard ? 'text-blue-700' : 'text-slate-400'
-                        }`}
+                        style={{
+                          fontSize: 12,
+                          fontWeight: '600',
+                          textAlign: 'center',
+                          marginTop: 6,
+                          color: isDraggingCard ? theme.colors.accent : theme.colors.textMuted,
+                        }}
                       >
                         {isDraggingCard ? 'Suelta aquí para mover' : 'Sin tareas'}
                       </Text>
-                      <Text className="text-[11px] text-slate-400 text-center mt-1">
+                      <Text
+                        style={{
+                          fontSize: 11,
+                          color: theme.colors.textMuted,
+                          textAlign: 'center',
+                          marginTop: 4,
+                        }}
+                      >
                         {isDraggingCard
                           ? 'Acerca al borde (10%) para auto-desplazar el tablero'
                           : 'Presiona (+) para añadir o arrastra una tarjeta hacia los bordes.'}

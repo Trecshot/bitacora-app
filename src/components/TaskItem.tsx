@@ -11,6 +11,12 @@ import Animated, {
 } from 'react-native-reanimated';
 import { CheckCircle2, Circle, Clock, ArrowRight, ArrowLeft, Trash2 } from 'lucide-react-native';
 import { Task, TaskStatus } from '../db/database';
+import {
+  getNextTaskStatus,
+  getPrevTaskStatus,
+  cycleTaskStatus,
+} from '../utils/dateAndTaskUtils';
+import { useTheme } from '../theme/ThemeContext';
 
 interface TaskItemProps {
   task: Task;
@@ -21,23 +27,11 @@ interface TaskItemProps {
 const SWIPE_THRESHOLD = 80;
 
 export const TaskItem: React.FC<TaskItemProps> = ({ task, onStatusChange, onDelete }) => {
+  const { theme } = useTheme();
   const translateX = useSharedValue(0);
 
-  // Determinar siguiente estado en el Kanban
-  const getNextStatus = (): TaskStatus | null => {
-    if (task.status === 'TODO') return 'IN_PROGRESS';
-    if (task.status === 'IN_PROGRESS') return 'DONE';
-    return null;
-  };
-
-  const getPrevStatus = (): TaskStatus | null => {
-    if (task.status === 'DONE') return 'IN_PROGRESS';
-    if (task.status === 'IN_PROGRESS') return 'TODO';
-    return null;
-  };
-
-  const nextStatus = getNextStatus();
-  const prevStatus = getPrevStatus();
+  const nextStatus = getNextTaskStatus(task.status);
+  const prevStatus = getPrevTaskStatus(task.status);
 
   const handleStatusChangeJS = (status: TaskStatus) => {
     onStatusChange(task.id, status);
@@ -157,29 +151,14 @@ export const TaskItem: React.FC<TaskItemProps> = ({ task, onStatusChange, onDele
       {/* Tarjeta de Tarea Interactiva con Gesture Handler y Reanimated */}
       <GestureDetector gesture={panGesture}>
         <Animated.View
-          style={[
-            animatedCardStyle,
-            {
-              shadowColor: '#64748B',
-              shadowOffset: { width: 0, height: 2 },
-              shadowOpacity: 0.05,
-              shadowRadius: 6,
-              elevation: 2,
-            },
-          ]}
-          className="bg-white p-4 rounded-2xl border border-slate-100"
+          style={[animatedCardStyle, theme.cardStyle, { padding: 14 }]}
         >
           {/* Fila Superior: Badges de Estado y Prioridad */}
           <View className="flex-row items-center justify-between mb-2">
             <View className="flex-row items-center space-x-2">
               <TouchableOpacity
                 activeOpacity={0.7}
-                onPress={() => {
-                  const cycle: TaskStatus[] = ['TODO', 'IN_PROGRESS', 'DONE'];
-                  const currentIndex = cycle.indexOf(task.status);
-                  const next = cycle[(currentIndex + 1) % cycle.length];
-                  onStatusChange(task.id, next);
-                }}
+                onPress={() => onStatusChange(task.id, cycleTaskStatus(task.status))}
                 className={`flex-row items-center px-2.5 py-1 rounded-full border ${statusBadge.bg}`}
               >
                 {statusBadge.icon}
@@ -197,23 +176,26 @@ export const TaskItem: React.FC<TaskItemProps> = ({ task, onStatusChange, onDele
                 hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                 className="p-1 rounded-md"
               >
-                <Trash2 size={16} color="#94A3B8" />
+                <Trash2 size={16} color={theme.colors.textMuted} />
               </TouchableOpacity>
             )}
           </View>
 
           {/* Título y Descripción */}
           <Text
-            className={`text-base font-semibold text-slate-800 ${
-              task.status === 'DONE' ? 'line-through text-slate-400' : ''
-            }`}
+            className="text-base font-semibold"
+            style={{
+              color: task.status === 'DONE' ? theme.colors.textMuted : theme.colors.text,
+              textDecorationLine: task.status === 'DONE' ? 'line-through' : 'none',
+            }}
           >
             {task.title}
           </Text>
 
           {Boolean(task.description) && (
             <Text
-              className="text-xs text-slate-500 mt-1"
+              className="text-xs mt-1"
+              style={{ color: theme.colors.textSecondary }}
               numberOfLines={2}
             >
               {task.description}
@@ -221,12 +203,15 @@ export const TaskItem: React.FC<TaskItemProps> = ({ task, onStatusChange, onDele
           )}
 
           {/* Indicador de ayuda para el gesto swipe */}
-          <View className="mt-2.5 pt-2 border-t border-slate-100 flex-row items-center justify-between">
-            <Text className="text-[10px] text-slate-400 italic">
+          <View
+            className="mt-2.5 pt-2 border-t flex-row items-center justify-between"
+            style={{ borderColor: theme.colors.border }}
+          >
+            <Text className="text-[10px] italic" style={{ color: theme.colors.textMuted }}>
               ← Desliza para cambiar estado en el Kanban →
             </Text>
             {Boolean(task.created_at) && (
-              <Text className="text-[10px] text-slate-400">
+              <Text className="text-[10px]" style={{ color: theme.colors.textMuted }}>
                 {task.created_at?.split(' ')[1] || ''}
               </Text>
             )}

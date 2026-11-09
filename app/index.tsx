@@ -20,6 +20,7 @@ import {
   FileText,
   FolderKanban,
   AlertTriangle,
+  Settings,
 } from 'lucide-react-native';
 import {
   getFolders,
@@ -34,10 +35,33 @@ import { FolderCard } from '../src/components/FolderCard';
 import { CreateFolderModal } from '../src/components/CreateFolderModal';
 import { AuditLogModal } from '../src/components/AuditLogModal';
 import { NotesView } from '../src/components/NotesView';
+import { useTheme } from '../src/theme/ThemeContext';
 
 export default function HomeScreen() {
   const router = useRouter();
+  const { theme, toggleTheme } = useTheme();
   const [activeModule, setActiveModule] = useState<'NOTES' | 'PROJECTS'>('NOTES');
+
+  const handleOpenSettings = () => {
+    Alert.alert(
+      'Configuración',
+      `Tema activo: ${theme.name}`,
+      [
+        {
+          text: theme.isDark ? '☀️ Cambiar a Modo Claro' : '🌙 Cambiar a Modo Oscuro (AMOLED)',
+          onPress: () => toggleTheme(),
+        },
+        {
+          text: '📋 Registro de Auditoría',
+          onPress: openAuditLogs,
+        },
+        {
+          text: 'Cancelar',
+          style: 'cancel',
+        },
+      ]
+    );
+  };
 
   // Estados del módulo de Proyectos
   const [folders, setFolders] = useState<Folder[]>([]);
@@ -124,29 +148,96 @@ export default function HomeScreen() {
   const totalTasks = folders.reduce((sum, f) => sum + (f.task_count || 0), 0);
 
   return (
-    <SafeAreaView className="flex-1 bg-slate-50">
+    <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.background }}>
       <Stack.Screen
         options={{
-          title: activeModule === 'NOTES' ? 'Bloc de Notas' : 'Proyectos & Kanban',
-          headerShadowVisible: false,
+          headerShown: false,
         }}
       />
 
-      {/* Selector de Módulo: Notas vs Proyectos */}
-      <View className="px-4 py-2 bg-white border-b border-slate-100 flex-row">
-        <View className="flex-1 flex-row bg-slate-100 p-1 rounded-2xl">
+      {/* Cabecera Principal (Título Grande y Botón Circular de Configuración como en las capturas) */}
+      <View
+        style={{
+          flexDirection: 'row',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          paddingHorizontal: 16,
+          paddingTop: 8,
+          paddingBottom: 10,
+        }}
+      >
+        <Text
+          style={{
+            fontSize: 24,
+            fontWeight: '700',
+            color: theme.colors.text,
+            letterSpacing: -0.4,
+          }}
+        >
+          {activeModule === 'NOTES' ? 'Bloc de Notas' : 'Proyectos Kanban'}
+        </Text>
+
+        <TouchableOpacity
+          activeOpacity={0.7}
+          onPress={handleOpenSettings}
+          style={{
+            width: 40,
+            height: 40,
+            borderRadius: 20,
+            backgroundColor: theme.isDark ? theme.colors.surfaceElevated : '#F1F5F9',
+            borderColor: theme.colors.border,
+            borderWidth: 1,
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+        >
+          <Settings size={20} color={theme.isDark ? '#E0E0E0' : '#475569'} />
+        </TouchableOpacity>
+      </View>
+
+      {/* Selector Segmentado de Módulo (Ancho Completo como en las capturas) */}
+      <View style={{ paddingHorizontal: 16, marginBottom: 8 }}>
+        <View
+          style={{
+            flexDirection: 'row',
+            backgroundColor: theme.isDark ? '#1A1A1A' : '#F1F5F9',
+            borderRadius: 14,
+            padding: 3,
+            borderColor: theme.colors.border,
+            borderWidth: 1,
+          }}
+        >
           <TouchableOpacity
             activeOpacity={0.8}
             onPress={() => setActiveModule('NOTES')}
-            className={`flex-1 py-2 rounded-xl flex-row items-center justify-center ${
-              activeModule === 'NOTES' ? 'bg-white shadow-sm' : ''
-            }`}
+            style={{
+              flex: 1,
+              paddingVertical: 8,
+              borderRadius: 11,
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'center',
+              backgroundColor: activeModule === 'NOTES' ? theme.colors.surface : 'transparent',
+              borderColor: activeModule === 'NOTES' ? theme.colors.border : 'transparent',
+              borderWidth: activeModule === 'NOTES' ? 1 : 0,
+              elevation: activeModule === 'NOTES' ? 1 : 0,
+              shadowColor: '#000000',
+              shadowOpacity: activeModule === 'NOTES' ? 0.05 : 0,
+              shadowRadius: 3,
+              shadowOffset: { width: 0, height: 1 },
+            }}
           >
-            <FileText size={15} color={activeModule === 'NOTES' ? '#2563EB' : '#64748B'} />
+            <FileText
+              size={15}
+              color={activeModule === 'NOTES' ? theme.colors.accent : theme.colors.textMuted}
+            />
             <Text
-              className={`text-xs ml-1.5 font-bold ${
-                activeModule === 'NOTES' ? 'text-slate-800' : 'text-slate-500'
-              }`}
+              style={{
+                fontSize: 13,
+                marginLeft: 7,
+                fontWeight: activeModule === 'NOTES' ? '600' : '500',
+                color: activeModule === 'NOTES' ? theme.colors.text : theme.colors.textMuted,
+              }}
             >
               Bloc de Notas
             </Text>
@@ -158,15 +249,34 @@ export default function HomeScreen() {
               setActiveModule('PROJECTS');
               loadData();
             }}
-            className={`flex-1 py-2 rounded-xl flex-row items-center justify-center ${
-              activeModule === 'PROJECTS' ? 'bg-white shadow-sm' : ''
-            }`}
+            style={{
+              flex: 1,
+              paddingVertical: 8,
+              borderRadius: 11,
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'center',
+              backgroundColor: activeModule === 'PROJECTS' ? theme.colors.surface : 'transparent',
+              borderColor: activeModule === 'PROJECTS' ? theme.colors.border : 'transparent',
+              borderWidth: activeModule === 'PROJECTS' ? 1 : 0,
+              elevation: activeModule === 'PROJECTS' ? 1 : 0,
+              shadowColor: '#000000',
+              shadowOpacity: activeModule === 'PROJECTS' ? 0.05 : 0,
+              shadowRadius: 3,
+              shadowOffset: { width: 0, height: 1 },
+            }}
           >
-            <FolderKanban size={15} color={activeModule === 'PROJECTS' ? '#2563EB' : '#64748B'} />
+            <FolderKanban
+              size={15}
+              color={activeModule === 'PROJECTS' ? theme.colors.accent : theme.colors.textMuted}
+            />
             <Text
-              className={`text-xs ml-1.5 font-bold ${
-                activeModule === 'PROJECTS' ? 'text-slate-800' : 'text-slate-500'
-              }`}
+              style={{
+                fontSize: 13,
+                marginLeft: 7,
+                fontWeight: activeModule === 'PROJECTS' ? '600' : '500',
+                color: activeModule === 'PROJECTS' ? theme.colors.text : theme.colors.textMuted,
+              }}
             >
               Proyectos Kanban
             </Text>
@@ -178,68 +288,184 @@ export default function HomeScreen() {
       {activeModule === 'NOTES' ? (
         <NotesView />
       ) : (
-        <View className="flex-1 px-4 pt-3">
+        <View style={{ flex: 1, paddingHorizontal: 16, paddingTop: 12 }}>
           {/* Banner de Resumen y Métricas de Proyectos (con Cálculo de Estancamiento) */}
-          <View className="bg-white rounded-3xl p-4 mb-4 border border-slate-200/70 shadow-sm">
+          <View
+            style={[
+              theme.cardStyle,
+              {
+                borderRadius: theme.metrics.radii.xl,
+                padding: 16,
+                marginBottom: 16,
+              },
+            ]}
+          >
             <View className="flex-row items-center justify-between mb-3">
               <View className="flex-row items-center">
-                <View className="w-10 h-10 rounded-2xl bg-blue-600 items-center justify-center mr-3 shadow-md shadow-blue-500/20">
-                  <FolderTree size={20} color="#FFFFFF" />
+                <View
+                  style={{
+                    width: 40,
+                    height: 40,
+                    borderRadius: theme.metrics.radii.md,
+                    backgroundColor: theme.colors.accent,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    marginRight: 12,
+                  }}
+                >
+                  <FolderTree size={20} color={theme.colors.accentText} />
                 </View>
                 <View>
-                  <Text className="text-base font-bold text-slate-800">Panel de Bitácora</Text>
-                  <Text className="text-xs text-slate-500">Organización de proyectos y tareas</Text>
+                  <Text
+                    style={{
+                      fontSize: 15,
+                      fontWeight: theme.typography.titleWeight,
+                      color: theme.colors.text,
+                    }}
+                  >
+                    Panel de Bitácora
+                  </Text>
+                  <Text style={{ fontSize: 12, color: theme.colors.textMuted }}>
+                    Organización de proyectos y tareas
+                  </Text>
                 </View>
               </View>
 
               <TouchableOpacity
                 onPress={openAuditLogs}
-                className="flex-row items-center bg-purple-50 px-3 py-1.5 rounded-xl border border-purple-200"
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  backgroundColor: theme.colors.surfaceElevated,
+                  borderColor: theme.colors.border,
+                  borderWidth: 1,
+                  paddingHorizontal: 10,
+                  paddingVertical: 6,
+                  borderRadius: theme.metrics.radii.md,
+                }}
               >
-                <History size={14} color="#7C3AED" />
-                <Text className="text-xs font-semibold text-purple-700 ml-1.5">Auditoría</Text>
+                <History size={13} color={theme.colors.accent} />
+                <Text
+                  style={{
+                    fontSize: 12,
+                    fontWeight: '600',
+                    color: theme.colors.accent,
+                    marginLeft: 6,
+                  }}
+                >
+                  Auditoría
+                </Text>
               </TouchableOpacity>
             </View>
 
-            <View className="flex-row divide-x divide-slate-100 pt-2 border-t border-slate-100">
-              <View className="flex-1 items-center py-1">
+            <View
+              style={{
+                flexDirection: 'row',
+                borderTopColor: theme.colors.border,
+                borderTopWidth: 1,
+                paddingTop: 8,
+              }}
+            >
+              <View style={{ flex: 1, alignItems: 'center', paddingVertical: 4 }}>
                 <View className="flex-row items-center">
-                  <FolderIcon size={14} color="#3B82F6" />
-                  <Text className="text-base font-bold text-slate-800 ml-1.5">
+                  <FolderIcon size={14} color={theme.colors.accent} />
+                  <Text
+                    style={{
+                      fontSize: 16,
+                      fontWeight: '700',
+                      color: theme.colors.text,
+                      marginLeft: 6,
+                    }}
+                  >
                     {folders.length}
                   </Text>
                 </View>
-                <Text className="text-[11px] text-slate-400 mt-0.5">Carpetas Raíz</Text>
+                <Text style={{ fontSize: 11, color: theme.colors.textMuted, marginTop: 2 }}>
+                  Carpetas Raíz
+                </Text>
               </View>
-              <View className="flex-1 items-center py-1">
+
+              <View
+                style={{
+                  width: 1,
+                  backgroundColor: theme.colors.border,
+                  marginVertical: 4,
+                }}
+              />
+
+              <View style={{ flex: 1, alignItems: 'center', paddingVertical: 4 }}>
                 <View className="flex-row items-center">
-                  <CheckCircle2 size={14} color="#10B981" />
-                  <Text className="text-base font-bold text-slate-800 ml-1.5">{totalTasks}</Text>
+                  <CheckCircle2 size={14} color={theme.colors.success} />
+                  <Text
+                    style={{
+                      fontSize: 16,
+                      fontWeight: '700',
+                      color: theme.colors.text,
+                      marginLeft: 6,
+                    }}
+                  >
+                    {totalTasks}
+                  </Text>
                 </View>
-                <Text className="text-[11px] text-slate-400 mt-0.5">Tareas Activas</Text>
+                <Text style={{ fontSize: 11, color: theme.colors.textMuted, marginTop: 2 }}>
+                  Tareas Activas
+                </Text>
               </View>
-              <View className="flex-1 items-center py-1">
+
+              <View
+                style={{
+                  width: 1,
+                  backgroundColor: theme.colors.border,
+                  marginVertical: 4,
+                }}
+              />
+
+              <View style={{ flex: 1, alignItems: 'center', paddingVertical: 4 }}>
                 <View className="flex-row items-center">
                   <AlertTriangle
                     size={14}
-                    color={globalStaleCount > 0 ? '#D97706' : '#94A3B8'}
+                    color={globalStaleCount > 0 ? theme.colors.warning : theme.colors.textMuted}
                   />
                   <Text
-                    className={`text-base font-bold ml-1.5 ${
-                      globalStaleCount > 0 ? 'text-amber-600' : 'text-slate-800'
-                    }`}
+                    style={{
+                      fontSize: 16,
+                      fontWeight: '700',
+                      color: globalStaleCount > 0 ? theme.colors.warning : theme.colors.text,
+                      marginLeft: 6,
+                    }}
                   >
                     {globalStaleCount}
                   </Text>
                 </View>
-                <Text className="text-[11px] text-slate-400 mt-0.5">Estancadas (&gt;7d)</Text>
+                <Text style={{ fontSize: 11, color: theme.colors.textMuted, marginTop: 2 }}>
+                  Estancadas (&gt;7d)
+                </Text>
               </View>
             </View>
 
             {globalStaleCount > 0 && (
-              <View className="mt-2.5 pt-2 border-t border-amber-100 bg-amber-50/70 px-3 py-2 rounded-xl flex-row items-center">
-                <AlertTriangle size={14} color="#D97706" />
-                <Text className="text-[11px] text-amber-800 font-medium ml-2 flex-1">
+              <View
+                style={{
+                  marginTop: 10,
+                  padding: 8,
+                  borderRadius: theme.metrics.radii.md,
+                  backgroundColor: theme.colors.warningSubtle,
+                  borderColor: theme.colors.warning,
+                  borderWidth: 1,
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                }}
+              >
+                <AlertTriangle size={14} color={theme.colors.warning} />
+                <Text
+                  style={{
+                    fontSize: 11,
+                    color: theme.colors.warning,
+                    fontWeight: '500',
+                    marginLeft: 8,
+                    flex: 1,
+                  }}
+                >
                   Alerta de estancamiento: {globalStaleCount} tarea
                   {globalStaleCount === 1 ? '' : 's'} en &quot;En Progreso&quot; sin cambios en más
                   de 7 días.
@@ -250,22 +476,47 @@ export default function HomeScreen() {
 
           {/* Buscador y Añadir Carpeta */}
           <View className="flex-row items-center space-x-2 mb-4">
-            <View className="flex-1 flex-row items-center bg-white px-3.5 py-2.5 rounded-2xl border border-slate-200/80 mr-2 shadow-sm">
-              <Search size={18} color="#94A3B8" />
+            <View
+              style={{
+                flex: 1,
+                flexDirection: 'row',
+                alignItems: 'center',
+                backgroundColor: theme.colors.inputBg,
+                paddingHorizontal: 14,
+                paddingVertical: 10,
+                borderRadius: theme.metrics.radii.lg,
+                borderColor: theme.colors.border,
+                borderWidth: 1,
+                marginRight: 8,
+              }}
+            >
+              <Search size={16} color={theme.colors.textMuted} />
               <TextInput
                 placeholder="Buscar carpetas..."
-                placeholderTextColor="#94A3B8"
+                placeholderTextColor={theme.colors.textMuted}
                 value={searchQuery}
                 onChangeText={setSearchQuery}
-                className="flex-1 ml-2 text-sm text-slate-800"
+                style={{
+                  flex: 1,
+                  marginLeft: 8,
+                  fontSize: 14,
+                  color: theme.colors.text,
+                }}
               />
             </View>
 
             <TouchableOpacity
               onPress={() => setIsCreateModalOpen(true)}
-              className="bg-blue-600 w-11 h-11 rounded-2xl items-center justify-center shadow-md shadow-blue-500/20"
+              style={{
+                backgroundColor: theme.colors.accent,
+                width: 44,
+                height: 44,
+                borderRadius: theme.metrics.radii.lg,
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
             >
-              <FolderPlus size={20} color="#FFFFFF" />
+              <FolderPlus size={20} color={theme.colors.accentText} />
             </TouchableOpacity>
           </View>
 
@@ -274,7 +525,12 @@ export default function HomeScreen() {
             data={filteredFolders}
             keyExtractor={(item) => item.id.toString()}
             refreshControl={
-              <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#2563EB']} />
+              <RefreshControl
+                refreshing={refreshing}
+                onRefresh={onRefresh}
+                colors={[theme.colors.accent]}
+                tintColor={theme.colors.accent}
+              />
             }
             showsVerticalScrollIndicator={false}
             contentContainerStyle={{ paddingBottom: 24 }}
@@ -287,13 +543,39 @@ export default function HomeScreen() {
             )}
             ListEmptyComponent={
               <View className="py-16 items-center">
-                <View className="w-16 h-16 rounded-3xl bg-slate-100 items-center justify-center mb-3">
-                  <FolderIcon size={32} color="#94A3B8" />
+                <View
+                  style={{
+                    width: 60,
+                    height: 60,
+                    borderRadius: theme.metrics.radii.xl,
+                    backgroundColor: theme.colors.surfaceElevated,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    marginBottom: 12,
+                    borderColor: theme.colors.border,
+                    borderWidth: 1,
+                  }}
+                >
+                  <FolderIcon size={28} color={theme.colors.textMuted} />
                 </View>
-                <Text className="text-base font-semibold text-slate-700">
+                <Text
+                  style={{
+                    fontSize: 15,
+                    fontWeight: '600',
+                    color: theme.colors.text,
+                  }}
+                >
                   No se encontraron carpetas
                 </Text>
-                <Text className="text-xs text-slate-400 mt-1 text-center px-8">
+                <Text
+                  style={{
+                    fontSize: 12,
+                    color: theme.colors.textMuted,
+                    marginTop: 4,
+                    textAlign: 'center',
+                    paddingHorizontal: 32,
+                  }}
+                >
                   Crea una nueva carpeta con el botón (+) para comenzar a organizar tus tareas y
                   notas.
                 </Text>

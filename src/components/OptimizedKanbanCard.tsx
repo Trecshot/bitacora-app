@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Platform } from 'react-native';
+import { View, Text, TouchableOpacity } from 'react-native';
 import { GestureDetector, Gesture } from 'react-native-gesture-handler';
 import * as Haptics from 'expo-haptics';
 import Animated, {
@@ -21,7 +21,16 @@ import {
   Calendar,
   AlertTriangle,
 } from 'lucide-react-native';
-import { Task, TaskStatus } from '../db/database';
+import { Task, TaskPriority, TaskStatus } from '../db/database';
+import {
+  isTaskStale,
+  getNextTaskStatus,
+  getPrevTaskStatus,
+  cycleTaskStatus,
+} from '../utils/dateAndTaskUtils';
+import { triggerHapticImpact, triggerHapticNotification } from '../utils/haptics';
+import { useTheme } from '../theme/ThemeContext';
+import { AppTheme } from '../theme/theme';
 
 interface OptimizedKanbanCardProps {
   task: Task;
@@ -35,12 +44,60 @@ interface OptimizedKanbanCardProps {
 
 const DRAG_THRESHOLD = 85;
 
-function checkIsStale(task: Task): boolean {
-  if (task.status !== 'IN_PROGRESS' || !task.updated_at) return false;
-  const updatedMs = new Date(task.updated_at.replace(' ', 'T')).getTime();
-  if (Number.isNaN(updatedMs)) return false;
-  return updatedMs < Date.now() - 7 * 86400000;
-}
+const getStatusBadge = (status: TaskStatus, theme: AppTheme) => {
+  switch (status) {
+    case 'DONE':
+      return {
+        label: 'Completado',
+        bg: theme.colors.successSubtle,
+        border: theme.colors.success,
+        textColor: theme.colors.success,
+        icon: <CheckCircle2 size={13} color={theme.colors.success} />,
+      };
+    case 'IN_PROGRESS':
+      return {
+        label: 'En Progreso',
+        bg: theme.colors.warningSubtle,
+        border: theme.colors.warning,
+        textColor: theme.colors.warning,
+        icon: <Clock size={13} color={theme.colors.warning} />,
+      };
+    default:
+      return {
+        label: 'Por Hacer',
+        bg: theme.colors.surfaceElevated,
+        border: theme.colors.border,
+        textColor: theme.colors.textSecondary,
+        icon: <Circle size={13} color={theme.colors.textMuted} />,
+      };
+  }
+};
+
+const getPriorityBadge = (priority: TaskPriority, theme: AppTheme) => {
+  switch (priority) {
+    case 'HIGH':
+      return {
+        label: 'Alta',
+        textColor: theme.colors.danger,
+        bg: theme.colors.dangerSubtle,
+        border: theme.colors.danger,
+      };
+    case 'MEDIUM':
+      return {
+        label: 'Media',
+        textColor: theme.colors.warning,
+        bg: theme.colors.warningSubtle,
+        border: theme.colors.warning,
+      };
+    default:
+      return {
+        label: 'Baja',
+        textColor: theme.colors.accent,
+        bg: theme.colors.accentSubtle,
+        border: theme.colors.accent,
+      };
+  }
+};
 
 export const OptimizedKanbanCard: React.FC<OptimizedKanbanCardProps> = ({
   task,
@@ -49,6 +106,8 @@ export const OptimizedKanbanCard: React.FC<OptimizedKanbanCardProps> = ({
   onDragMoveX,
   onDragEnd,
 }) => {
+  const { theme } = useTheme();
+
   // Coordenadas físicas (X, Y) y valores de animación en el UI thread
   const translateX = useSharedValue(0);
   const translateY = useSharedValue(0);
@@ -56,47 +115,25 @@ export const OptimizedKanbanCard: React.FC<OptimizedKanbanCardProps> = ({
   const zIndex = useSharedValue(1);
   const isDragging = useSharedValue(false);
 
-  const isStale = checkIsStale(task);
+  const isStale = isTaskStale(task);
+  const nextStatus = getNextTaskStatus(task.status);
+  const prevStatus = getPrevTaskStatus(task.status);
 
-  // Estados adyacentes en el flujo Kanban
-  const getNextStatus = (): TaskStatus | null => {
-    if (task.status === 'TODO') return 'IN_PROGRESS';
-    if (task.status === 'IN_PROGRESS') return 'DONE';
-    return null;
-  };
-
-  const getPrevStatus = (): TaskStatus | null => {
-    if (task.status === 'DONE') return 'IN_PROGRESS';
-    if (task.status === 'IN_PROGRESS') return 'TODO';
-    return null;
-  };
-
-  const nextStatus = getNextStatus();
-  const prevStatus = getPrevStatus();
-
-  const triggerHapticFeedback = () => {
-    if (Platform.OS !== 'web') {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
-    }
+  const triggerMediumHaptic = () => {
+    triggerHapticImpact(Haptics.ImpactFeedbackStyle.Medium);
   };
 
   const handleCommitStatus = (status: TaskStatus) => {
-    if (Platform.OS !== 'web') {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
-    }
+    triggerHapticNotification(Haptics.NotificationFeedbackType.Success);
     onMoveStatus(task.id, status);
   };
 
   const notifyDragMoveX = (absX: number) => {
-    if (onDragMoveX) {
-      onDragMoveX(absX);
-    }
+    onDragMoveX?.(absX);
   };
 
   const notifyDragEnd = () => {
-    if (onDragEnd) {
-      onDragEnd();
-    }
+    onDragEnd?.();
   };
 
   /**
@@ -108,10 +145,10 @@ export const OptimizedKanbanCard: React.FC<OptimizedKanbanCardProps> = ({
     .activateAfterLongPress(150)
     .onStart((event) => {
       'worklet';
-      scale.value = withSpring(1.05, { damping: 14, stiffness: 220 });
+      scale.value = withSpring(1.04, { damping: 14, stiffness: 220 });
       zIndex.value = 100;
       isDragging.value = true;
-      runOnJS(triggerHapticFeedback)();
+      runOnJS(triggerMediumHaptic)();
       runOnJS(notifyDragMoveX)(event.absoluteX);
     })
     .onUpdate((event) => {
@@ -173,142 +210,195 @@ export const OptimizedKanbanCard: React.FC<OptimizedKanbanCardProps> = ({
     return { opacity };
   });
 
-  const getStatusBadge = () => {
-    switch (task.status) {
-      case 'DONE':
-        return {
-          label: 'Completado',
-          bg: 'bg-emerald-50 text-emerald-700 border-emerald-200',
-          icon: <CheckCircle2 size={14} color="#10B981" />,
-        };
-      case 'IN_PROGRESS':
-        return {
-          label: 'En Progreso',
-          bg: 'bg-amber-50 text-amber-700 border-amber-200',
-          icon: <Clock size={14} color="#F59E0B" />,
-        };
-      default:
-        return {
-          label: 'Por Hacer',
-          bg: 'bg-slate-100 text-slate-700 border-slate-200',
-          icon: <Circle size={14} color="#64748B" />,
-        };
-    }
-  };
-
-  const getPriorityBadge = () => {
-    switch (task.priority) {
-      case 'HIGH':
-        return { label: 'Alta', color: 'text-rose-600 bg-rose-50 border-rose-200' };
-      case 'MEDIUM':
-        return { label: 'Media', color: 'text-amber-600 bg-amber-50 border-amber-200' };
-      default:
-        return { label: 'Baja', color: 'text-blue-600 bg-blue-50 border-blue-200' };
-    }
-  };
-
-  const statusBadge = getStatusBadge();
-  const priorityBadge = getPriorityBadge();
+  const statusBadge = getStatusBadge(task.status, theme);
+  const priorityBadge = getPriorityBadge(task.priority, theme);
 
   return (
-    <View className="mb-2.5 relative rounded-2xl overflow-hidden">
+    <View
+      style={{
+        marginBottom: 10,
+        position: 'relative',
+        borderRadius: theme.metrics.radii.lg,
+        overflow: 'hidden',
+      }}
+    >
       {/* Zona visual de Drop hacia la izquierda (Retroceso Kanban) */}
       <Animated.View
-        style={[animatedLeftDropStyle]}
-        className="absolute inset-0 bg-amber-500 rounded-2xl flex-row items-center px-4 justify-start"
+        style={[
+          animatedLeftDropStyle,
+          {
+            position: 'absolute',
+            inset: 0,
+            backgroundColor: theme.colors.warning,
+            borderRadius: theme.metrics.radii.lg,
+            flexDirection: 'row',
+            alignItems: 'center',
+            paddingHorizontal: 16,
+            justifyContent: 'flex-start',
+          },
+        ]}
       >
         <ArrowLeft size={18} color="#FFFFFF" />
-        <Text className="text-white font-bold text-xs ml-2">
+        <Text style={{ color: '#FFFFFF', fontWeight: '700', fontSize: 12, marginLeft: 8 }}>
           {prevStatus === 'TODO' ? 'Por Hacer' : 'En Progreso'}
         </Text>
       </Animated.View>
 
       {/* Zona visual de Drop hacia la derecha (Avance Kanban) */}
       <Animated.View
-        style={[animatedRightDropStyle]}
-        className="absolute inset-0 bg-emerald-600 rounded-2xl flex-row items-center px-4 justify-end"
+        style={[
+          animatedRightDropStyle,
+          {
+            position: 'absolute',
+            inset: 0,
+            backgroundColor: theme.colors.success,
+            borderRadius: theme.metrics.radii.lg,
+            flexDirection: 'row',
+            alignItems: 'center',
+            paddingHorizontal: 16,
+            justifyContent: 'flex-end',
+          },
+        ]}
       >
-        <Text className="text-white font-bold text-xs mr-2">
+        <Text style={{ color: '#FFFFFF', fontWeight: '700', fontSize: 12, marginRight: 8 }}>
           {nextStatus === 'IN_PROGRESS' ? 'En Progreso' : 'Completado'}
         </Text>
         <ArrowRight size={18} color="#FFFFFF" />
       </Animated.View>
 
-      {/* Tarjeta de Tarea compacta con feedback háptico y Reanimated scale(1.05) */}
+      {/* Tarjeta de Tarea compacta estilizada según el Tema activo */}
       <GestureDetector gesture={panGesture}>
         <Animated.View
-          style={[animatedCardStyle, styles.cardShadow]}
-          className={`bg-white p-3.5 rounded-2xl border ${
-            isStale ? 'border-amber-300' : 'border-slate-200/90'
-          }`}
+          style={[
+            animatedCardStyle,
+            theme.cardStyle,
+            {
+              padding: 13,
+              borderRadius: theme.metrics.radii.lg,
+              backgroundColor: theme.colors.cardBg,
+              borderColor: isStale ? theme.colors.warning : theme.colors.border,
+              borderWidth: theme.metrics.borderWidth,
+            },
+          ]}
         >
           {/* Fila Superior: Badges y Acciones */}
-          <View className="flex-row items-center justify-between mb-1.5">
-            <View className="flex-row items-center flex-wrap">
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap' }}>
               <TouchableOpacity
                 activeOpacity={0.7}
-                onPress={() => {
-                  const cycle: TaskStatus[] = ['TODO', 'IN_PROGRESS', 'DONE'];
-                  const currentIndex = cycle.indexOf(task.status);
-                  const next = cycle[(currentIndex + 1) % cycle.length];
-                  handleCommitStatus(next);
+                onPress={() => handleCommitStatus(cycleTaskStatus(task.status))}
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  paddingHorizontal: 8,
+                  paddingVertical: 3,
+                  borderRadius: theme.metrics.radii.full,
+                  backgroundColor: statusBadge.bg,
+                  borderColor: statusBadge.border,
+                  borderWidth: 1,
                 }}
-                className={`flex-row items-center px-2 py-0.5 rounded-full border ${statusBadge.bg}`}
               >
                 {statusBadge.icon}
-                <Text className="text-[11px] font-semibold ml-1">{statusBadge.label}</Text>
+                <Text style={{ fontSize: 11, fontWeight: '600', marginLeft: 4, color: statusBadge.textColor }}>
+                  {statusBadge.label}
+                </Text>
               </TouchableOpacity>
 
-              <View className={`px-2 py-0.5 rounded-md border ml-1.5 ${priorityBadge.color}`}>
-                <Text className="text-[10px] font-bold uppercase">{priorityBadge.label}</Text>
+              <View
+                style={{
+                  paddingHorizontal: 7,
+                  paddingVertical: 2,
+                  borderRadius: theme.metrics.radii.sm,
+                  marginLeft: 6,
+                  backgroundColor: priorityBadge.bg,
+                  borderColor: priorityBadge.border,
+                  borderWidth: 1,
+                }}
+              >
+                <Text style={{ fontSize: 10, fontWeight: '700', color: priorityBadge.textColor, textTransform: 'uppercase' }}>
+                  {priorityBadge.label}
+                </Text>
               </View>
             </View>
 
-            <View className="flex-row items-center">
+            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
               {onDelete && (
                 <TouchableOpacity
                   onPress={() => onDelete(task.id)}
                   hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                  className="p-1 mr-1"
+                  style={{ padding: 4, marginRight: 4 }}
                 >
-                  <Trash2 size={14} color="#94A3B8" />
+                  <Trash2 size={13} color={theme.colors.textMuted} />
                 </TouchableOpacity>
               )}
-              <GripVertical size={15} color="#CBD5E1" />
+              <GripVertical size={14} color={theme.colors.textMuted} />
             </View>
           </View>
 
           {/* Título de la tarea */}
           <Text
-            className={`text-sm font-semibold text-slate-800 ${
-              task.status === 'DONE' ? 'line-through text-slate-400' : ''
-            }`}
+            style={{
+              fontSize: 14,
+              fontWeight: theme.typography.titleWeight,
+              color: task.status === 'DONE' ? theme.colors.textMuted : theme.colors.text,
+              textDecorationLine: task.status === 'DONE' ? 'line-through' : 'none',
+            }}
           >
             {task.title}
           </Text>
 
           {/* Descripción opcional */}
           {Boolean(task.description) && (
-            <Text className="text-xs text-slate-500 mt-1 leading-relaxed" numberOfLines={2}>
+            <Text
+              style={{
+                fontSize: 12,
+                color: theme.colors.textMuted,
+                marginTop: 4,
+                lineHeight: 17,
+              }}
+              numberOfLines={2}
+            >
               {task.description}
             </Text>
           )}
 
           {/* Metadatos inferiores: Fecha límite y alerta de estancamiento */}
           {(Boolean(task.due_date) || isStale) && (
-            <View className="flex-row items-center justify-between mt-2 pt-1.5 border-t border-slate-100 flex-wrap">
+            <View
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                marginTop: 8,
+                paddingTop: 6,
+                borderTopColor: theme.colors.borderSubtle,
+                borderTopWidth: 1,
+                flexWrap: 'wrap',
+              }}
+            >
               {Boolean(task.due_date) && (
-                <View className="flex-row items-center mr-2">
-                  <Calendar size={11} color="#64748B" />
-                  <Text className="text-[10px] text-slate-500 font-medium ml-1">
+                <View style={{ flexDirection: 'row', alignItems: 'center', marginRight: 8 }}>
+                  <Calendar size={11} color={theme.colors.textMuted} />
+                  <Text style={{ fontSize: 10, color: theme.colors.textMuted, fontWeight: '500', marginLeft: 4 }}>
                     Vence: {task.due_date?.substring(0, 10)}
                   </Text>
                 </View>
               )}
               {isStale && (
-                <View className="flex-row items-center bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200">
-                  <AlertTriangle size={10} color="#D97706" />
-                  <Text className="text-[10px] font-bold text-amber-700 ml-1">
+                <View
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    backgroundColor: theme.colors.warningSubtle,
+                    paddingHorizontal: 6,
+                    paddingVertical: 2,
+                    borderRadius: theme.metrics.radii.sm,
+                    borderColor: theme.colors.warning,
+                    borderWidth: 1,
+                  }}
+                >
+                  <AlertTriangle size={10} color={theme.colors.warning} />
+                  <Text style={{ fontSize: 10, fontWeight: '700', color: theme.colors.warning, marginLeft: 4 }}>
                     Estancada (&gt;7d)
                   </Text>
                 </View>
@@ -320,13 +410,3 @@ export const OptimizedKanbanCard: React.FC<OptimizedKanbanCardProps> = ({
     </View>
   );
 };
-
-const styles = StyleSheet.create({
-  cardShadow: {
-    shadowColor: '#475569',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
-    elevation: 3,
-  },
-});

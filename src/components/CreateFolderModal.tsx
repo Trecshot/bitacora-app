@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { View, Text, TextInput, Modal, TouchableOpacity } from 'react-native';
 import { X, FolderPlus, GitBranch } from 'lucide-react-native';
+import { FOLDER_COLORS } from '../utils/dateAndTaskUtils';
+import { useTheme } from '../theme/ThemeContext';
 
 interface CreateFolderModalProps {
   visible: boolean;
@@ -12,8 +14,6 @@ interface CreateFolderModalProps {
   parentFolderName?: string;
 }
 
-const COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899'];
-
 export const CreateFolderModal: React.FC<CreateFolderModalProps> = ({
   visible,
   onClose,
@@ -21,7 +21,8 @@ export const CreateFolderModal: React.FC<CreateFolderModalProps> = ({
   defaultColor,
   parentFolderName,
 }) => {
-  const inheritedColor = defaultColor || COLORS[0];
+  const { theme } = useTheme();
+  const inheritedColor = defaultColor || FOLDER_COLORS[0];
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [customColor, setCustomColor] = useState<string | null>(null);
@@ -29,9 +30,11 @@ export const CreateFolderModal: React.FC<CreateFolderModalProps> = ({
   const selectedColor = customColor || inheritedColor;
 
   // Asegurar que el color heredado aparezca en la paleta si fuera personalizado
-  const colorPalette = COLORS.includes(inheritedColor)
-    ? COLORS
-    : [inheritedColor, ...COLORS.slice(0, 5)];
+  const colorPalette: readonly string[] = (FOLDER_COLORS as readonly string[]).includes(
+    inheritedColor
+  )
+    ? FOLDER_COLORS
+    : [inheritedColor, ...FOLDER_COLORS.slice(0, 5)];
 
   const handleClose = () => {
     setName('');
@@ -51,8 +54,8 @@ export const CreateFolderModal: React.FC<CreateFolderModalProps> = ({
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={handleClose}>
-      <View className="flex-1 bg-black/40 justify-center items-center px-4">
-        <View className="bg-white rounded-3xl p-6 w-full max-w-sm shadow-xl">
+      <View className="flex-1 bg-black/60 justify-center items-center px-4">
+        <View style={[theme.cardStyle, { width: '100%', maxWidth: 380, padding: 24 }]}>
           <View className="flex-row items-center justify-between mb-4">
             <View className="flex-row items-center flex-1 mr-2">
               <View
@@ -62,13 +65,17 @@ export const CreateFolderModal: React.FC<CreateFolderModalProps> = ({
                 <FolderPlus size={18} color={selectedColor} />
               </View>
               <View className="flex-1">
-                <Text className="text-lg font-bold text-slate-800">
+                <Text className="text-lg font-bold" style={{ color: theme.colors.text }}>
                   {parentFolderName ? 'Nueva Subcarpeta' : 'Nueva Carpeta'}
                 </Text>
                 {Boolean(parentFolderName) && (
                   <View className="flex-row items-center mt-0.5">
-                    <GitBranch size={11} color="#64748B" />
-                    <Text className="text-[11px] text-slate-500 ml-1" numberOfLines={1}>
+                    <GitBranch size={11} color={theme.colors.textMuted} />
+                    <Text
+                      className="text-[11px] ml-1"
+                      style={{ color: theme.colors.textMuted }}
+                      numberOfLines={1}
+                    >
                       Dentro de {parentFolderName}
                     </Text>
                   </View>
@@ -76,43 +83,73 @@ export const CreateFolderModal: React.FC<CreateFolderModalProps> = ({
               </View>
             </View>
             <TouchableOpacity onPress={handleClose} className="p-1">
-              <X size={20} color="#94A3B8" />
+              <X size={20} color={theme.colors.textMuted} />
             </TouchableOpacity>
           </View>
 
-          <Text className="text-xs font-semibold text-slate-600 mb-1">Nombre de la carpeta</Text>
+          <Text
+            className="text-xs font-semibold mb-1"
+            style={{ color: theme.colors.textSecondary }}
+          >
+            Nombre de la carpeta
+          </Text>
           <TextInput
             placeholder="Ej: Sprint 4, Arquitectura..."
-            placeholderTextColor="#94A3B8"
+            placeholderTextColor={theme.colors.textMuted}
             value={name}
             onChangeText={setName}
             autoFocus
-            className="border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm text-slate-800 bg-slate-50 mb-3"
+            className="border rounded-xl px-3.5 py-2.5 text-sm mb-3"
+            style={{
+              backgroundColor: theme.colors.inputBg,
+              borderColor: theme.colors.border,
+              color: theme.colors.text,
+            }}
           />
 
-          <Text className="text-xs font-semibold text-slate-600 mb-1">
+          <Text
+            className="text-xs font-semibold mb-1"
+            style={{ color: theme.colors.textSecondary }}
+          >
             Contexto o idea (opcional)
           </Text>
           <TextInput
             placeholder="Breve resumen o notas clave (Markdown)..."
-            placeholderTextColor="#94A3B8"
+            placeholderTextColor={theme.colors.textMuted}
             value={description}
             onChangeText={setDescription}
-            className="border border-slate-200 rounded-xl px-3.5 py-2 text-sm text-slate-800 bg-slate-50 mb-4"
+            className="border rounded-xl px-3.5 py-2 text-sm mb-4"
+            style={{
+              backgroundColor: theme.colors.inputBg,
+              borderColor: theme.colors.border,
+              color: theme.colors.text,
+            }}
           />
 
           <View className="flex-row items-center justify-between mb-2">
-            <Text className="text-xs font-semibold text-slate-600">Color del identificador</Text>
+            <Text
+              className="text-xs font-semibold"
+              style={{ color: theme.colors.textSecondary }}
+            >
+              Color del identificador
+            </Text>
             {Boolean(defaultColor) && (
               <TouchableOpacity
                 onPress={() => setCustomColor(null)}
-                className="flex-row items-center bg-slate-100 px-2 py-0.5 rounded-full"
+                className="flex-row items-center px-2 py-0.5 rounded-full border"
+                style={{
+                  backgroundColor: theme.colors.surfaceElevated,
+                  borderColor: theme.colors.border,
+                }}
               >
                 <View
                   className="w-2.5 h-2.5 rounded-full mr-1.5"
                   style={{ backgroundColor: inheritedColor }}
                 />
-                <Text className="text-[10px] font-semibold text-slate-600">
+                <Text
+                  className="text-[10px] font-semibold"
+                  style={{ color: theme.colors.textSecondary }}
+                >
                   {selectedColor === inheritedColor
                     ? 'Heredado del padre'
                     : 'Restaurar color padre'}
@@ -126,20 +163,32 @@ export const CreateFolderModal: React.FC<CreateFolderModalProps> = ({
               <TouchableOpacity
                 key={c}
                 onPress={() => setCustomColor(c)}
-                style={{ backgroundColor: c }}
+                style={{
+                  backgroundColor: c,
+                  borderColor: selectedColor === c ? theme.colors.text : 'transparent',
+                }}
                 className={`w-9 h-9 rounded-full items-center justify-center ${
-                  selectedColor === c ? 'border-2 border-slate-800' : ''
+                  selectedColor === c ? 'border-2' : ''
                 }`}
               />
             ))}
           </View>
 
-          <View className="flex-row space-x-3">
+          <View className="flex-row">
             <TouchableOpacity
               onPress={handleClose}
-              className="flex-1 py-3 rounded-xl bg-slate-100 items-center mr-2"
+              className="flex-1 py-3 rounded-xl items-center mr-2 border"
+              style={{
+                backgroundColor: theme.colors.surfaceElevated,
+                borderColor: theme.colors.border,
+              }}
             >
-              <Text className="text-sm font-semibold text-slate-600">Cancelar</Text>
+              <Text
+                className="text-sm font-semibold"
+                style={{ color: theme.colors.textSecondary }}
+              >
+                Cancelar
+              </Text>
             </TouchableOpacity>
             <TouchableOpacity
               onPress={handleCreate}

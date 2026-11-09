@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import { View, Text, TextInput, Modal, TouchableOpacity } from 'react-native';
 import { X, PlusCircle, Calendar } from 'lucide-react-native';
 import { TaskPriority, TaskStatus } from '../db/database';
+import { formatDateOnlyOffset } from '../utils/dateAndTaskUtils';
+import { useTheme } from '../theme/ThemeContext';
 
 interface CreateTaskModalProps {
   visible: boolean;
@@ -24,12 +26,17 @@ const PRIORITIES: { label: string; value: TaskPriority }[] = [
 
 type DuePreset = 'NONE' | 'TODAY' | 'TOMORROW' | 'NEXT_WEEK';
 
+const DUE_PRESETS: { id: DuePreset; label: string }[] = [
+  { id: 'NONE', label: 'Sin fecha' },
+  { id: 'TODAY', label: 'Hoy' },
+  { id: 'TOMORROW', label: 'Mañana' },
+  { id: 'NEXT_WEEK', label: '+7 días' },
+];
+
 function computeDateFromPreset(preset: DuePreset): string | null {
   if (preset === 'NONE') return null;
   const days = preset === 'TODAY' ? 0 : preset === 'TOMORROW' ? 1 : 7;
-  const d = new Date(Date.now() + days * 86400000);
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  return formatDateOnlyOffset(days);
 }
 
 export const CreateTaskModal: React.FC<CreateTaskModalProps> = ({
@@ -38,127 +45,190 @@ export const CreateTaskModal: React.FC<CreateTaskModalProps> = ({
   onSubmit,
   defaultStatus = 'TODO',
 }) => {
+  const { theme } = useTheme();
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [priority, setPriority] = useState<TaskPriority>('MEDIUM');
   const [duePreset, setDuePreset] = useState<DuePreset>('NONE');
 
-  const handleCreate = () => {
-    if (!title.trim()) return;
-    const dueDate = computeDateFromPreset(duePreset);
-    onSubmit(title.trim(), description.trim(), priority, defaultStatus, dueDate);
+  const resetForm = () => {
     setTitle('');
     setDescription('');
     setPriority('MEDIUM');
     setDuePreset('NONE');
+  };
+
+  const handleClose = () => {
+    resetForm();
+    onClose();
+  };
+
+  const handleCreate = () => {
+    if (!title.trim()) return;
+    const dueDate = computeDateFromPreset(duePreset);
+    onSubmit(title.trim(), description.trim(), priority, defaultStatus, dueDate);
+    resetForm();
     onClose();
   };
 
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-      <View className="flex-1 bg-black/40 justify-center items-center px-4">
-        <View className="bg-white rounded-3xl p-6 w-full max-w-sm shadow-xl">
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={handleClose}>
+      <View className="flex-1 bg-black/60 justify-center items-center px-4">
+        <View style={[theme.cardStyle, { width: '100%', maxWidth: 380, padding: 24 }]}>
           <View className="flex-row items-center justify-between mb-4">
             <View className="flex-row items-center">
-              <View className="w-8 h-8 rounded-lg bg-emerald-50 items-center justify-center mr-2">
-                <PlusCircle size={18} color="#059669" />
+              <View
+                className="w-8 h-8 rounded-lg items-center justify-center mr-2"
+                style={{ backgroundColor: `${theme.colors.success}18` }}
+              >
+                <PlusCircle size={18} color={theme.colors.success} />
               </View>
-              <Text className="text-lg font-bold text-slate-800">Nueva Tarea</Text>
+              <Text className="text-lg font-bold" style={{ color: theme.colors.text }}>
+                Nueva Tarea
+              </Text>
             </View>
-            <TouchableOpacity onPress={onClose} className="p-1">
-              <X size={20} color="#94A3B8" />
+            <TouchableOpacity onPress={handleClose} className="p-1">
+              <X size={20} color={theme.colors.textMuted} />
             </TouchableOpacity>
           </View>
 
-          <Text className="text-xs font-semibold text-slate-600 mb-1">Título de la tarea</Text>
+          <Text
+            className="text-xs font-semibold mb-1"
+            style={{ color: theme.colors.textSecondary }}
+          >
+            Título de la tarea
+          </Text>
           <TextInput
             placeholder="Ej: Implementar triggers SQLite..."
-            placeholderTextColor="#94A3B8"
+            placeholderTextColor={theme.colors.textMuted}
             value={title}
             onChangeText={setTitle}
             autoFocus
-            className="border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm text-slate-800 bg-slate-50 mb-3"
+            className="border rounded-xl px-3.5 py-2.5 text-sm mb-3"
+            style={{
+              backgroundColor: theme.colors.inputBg,
+              borderColor: theme.colors.border,
+              color: theme.colors.text,
+            }}
           />
 
-          <Text className="text-xs font-semibold text-slate-600 mb-1">Descripción (opcional)</Text>
+          <Text
+            className="text-xs font-semibold mb-1"
+            style={{ color: theme.colors.textSecondary }}
+          >
+            Descripción (opcional)
+          </Text>
           <TextInput
             placeholder="Detalles técnicos o requisitos..."
-            placeholderTextColor="#94A3B8"
+            placeholderTextColor={theme.colors.textMuted}
             value={description}
             onChangeText={setDescription}
             multiline
             numberOfLines={3}
-            className="border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm text-slate-800 bg-slate-50 mb-3 h-20 text-top"
+            textAlignVertical="top"
+            className="border rounded-xl px-3.5 py-2.5 text-sm mb-3 h-20"
+            style={{
+              backgroundColor: theme.colors.inputBg,
+              borderColor: theme.colors.border,
+              color: theme.colors.text,
+            }}
           />
 
-          <Text className="text-xs font-semibold text-slate-600 mb-1">Prioridad</Text>
-          <View className="flex-row space-x-2 mb-4">
-            {PRIORITIES.map((p) => (
-              <TouchableOpacity
-                key={p.value}
-                onPress={() => setPriority(p.value)}
-                className={`flex-1 py-2 rounded-xl items-center border mx-1 ${
-                  priority === p.value
-                    ? 'bg-slate-800 border-slate-800'
-                    : 'bg-slate-50 border-slate-200'
-                }`}
-              >
-                <Text
-                  className={`text-xs font-semibold ${
-                    priority === p.value ? 'text-white' : 'text-slate-600'
-                  }`}
+          <Text
+            className="text-xs font-semibold mb-1"
+            style={{ color: theme.colors.textSecondary }}
+          >
+            Prioridad
+          </Text>
+          <View className="flex-row mb-4">
+            {PRIORITIES.map((p) => {
+              const isSelected = priority === p.value;
+              return (
+                <TouchableOpacity
+                  key={p.value}
+                  onPress={() => setPriority(p.value)}
+                  className="flex-1 py-2 rounded-xl items-center border mx-1"
+                  style={{
+                    backgroundColor: isSelected
+                      ? theme.colors.accent
+                      : theme.colors.surfaceElevated,
+                    borderColor: isSelected ? theme.colors.accent : theme.colors.border,
+                  }}
                 >
-                  {p.label}
-                </Text>
-              </TouchableOpacity>
-            ))}
+                  <Text
+                    className="text-xs font-semibold"
+                    style={{
+                      color: isSelected
+                        ? theme.colors.accentText
+                        : theme.colors.textSecondary,
+                    }}
+                  >
+                    {p.label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
           </View>
 
           <View className="flex-row items-center mb-1.5">
-            <Calendar size={13} color="#64748B" />
-            <Text className="text-xs font-semibold text-slate-600 ml-1">
+            <Calendar size={13} color={theme.colors.textMuted} />
+            <Text
+              className="text-xs font-semibold ml-1"
+              style={{ color: theme.colors.textSecondary }}
+            >
               Fecha límite (opcional)
             </Text>
           </View>
           <View className="flex-row flex-wrap mb-5">
-            {(
-              [
-                { id: 'NONE', label: 'Sin fecha' },
-                { id: 'TODAY', label: 'Hoy' },
-                { id: 'TOMORROW', label: 'Mañana' },
-                { id: 'NEXT_WEEK', label: '+7 días' },
-              ] as { id: DuePreset; label: string }[]
-            ).map((opt) => (
-              <TouchableOpacity
-                key={opt.id}
-                onPress={() => setDuePreset(opt.id)}
-                className={`px-3 py-1.5 rounded-xl border mr-1.5 mb-1.5 ${
-                  duePreset === opt.id
-                    ? 'bg-blue-600 border-blue-600'
-                    : 'bg-slate-50 border-slate-200'
-                }`}
-              >
-                <Text
-                  className={`text-xs font-semibold ${
-                    duePreset === opt.id ? 'text-white' : 'text-slate-600'
-                  }`}
+            {DUE_PRESETS.map((opt) => {
+              const isSelected = duePreset === opt.id;
+              return (
+                <TouchableOpacity
+                  key={opt.id}
+                  onPress={() => setDuePreset(opt.id)}
+                  className="px-3 py-1.5 rounded-xl border mr-1.5 mb-1.5"
+                  style={{
+                    backgroundColor: isSelected
+                      ? theme.colors.accent
+                      : theme.colors.surfaceElevated,
+                    borderColor: isSelected ? theme.colors.accent : theme.colors.border,
+                  }}
                 >
-                  {opt.label}
-                </Text>
-              </TouchableOpacity>
-            ))}
+                  <Text
+                    className="text-xs font-semibold"
+                    style={{
+                      color: isSelected
+                        ? theme.colors.accentText
+                        : theme.colors.textSecondary,
+                    }}
+                  >
+                    {opt.label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
           </View>
 
-          <View className="flex-row space-x-3">
+          <View className="flex-row">
             <TouchableOpacity
-              onPress={onClose}
-              className="flex-1 py-3 rounded-xl bg-slate-100 items-center mr-2"
+              onPress={handleClose}
+              className="flex-1 py-3 rounded-xl items-center mr-2 border"
+              style={{
+                backgroundColor: theme.colors.surfaceElevated,
+                borderColor: theme.colors.border,
+              }}
             >
-              <Text className="text-sm font-semibold text-slate-600">Cancelar</Text>
+              <Text
+                className="text-sm font-semibold"
+                style={{ color: theme.colors.textSecondary }}
+              >
+                Cancelar
+              </Text>
             </TouchableOpacity>
             <TouchableOpacity
               onPress={handleCreate}
-              className="flex-1 py-3 rounded-xl bg-emerald-600 items-center ml-2"
+              className="flex-1 py-3 rounded-xl items-center ml-2"
+              style={{ backgroundColor: theme.colors.success }}
             >
               <Text className="text-sm font-semibold text-white">Guardar</Text>
             </TouchableOpacity>

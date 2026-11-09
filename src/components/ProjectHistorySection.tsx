@@ -4,7 +4,6 @@ import {
   Text,
   TouchableOpacity,
   ActivityIndicator,
-  Platform,
   SectionList,
 } from 'react-native';
 import Animated, {
@@ -12,26 +11,20 @@ import Animated, {
   useAnimatedStyle,
   withTiming,
 } from 'react-native-reanimated';
-import * as Haptics from 'expo-haptics';
 import {
   History,
   ChevronDown,
   RotateCw,
-  PlusCircle,
-  ArrowRightLeft,
-  Edit3,
-  Trash2,
-  CheckCircle2,
   CalendarClock,
-  RotateCcw,
 } from 'lucide-react-native';
 import { AuditLog, getProjectAuditLogsAsync } from '../db/database';
 import {
-  parseAuditLogEntry,
-  ParsedAuditEntry,
   groupAuditLogsByRelativeDate,
   AuditLogSection,
 } from '../utils/auditParser';
+import { triggerHapticImpact } from '../utils/haptics';
+import { AuditLogEntryCard } from './AuditLogEntryCard';
+import { useTheme } from '../theme/ThemeContext';
 
 interface ProjectHistorySectionProps {
   folderId: number;
@@ -40,6 +33,7 @@ interface ProjectHistorySectionProps {
 const PAGE_SIZE = 15;
 
 export const ProjectHistorySection: React.FC<ProjectHistorySectionProps> = ({ folderId }) => {
+  const { theme } = useTheme();
   const [isExpanded, setIsExpanded] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
@@ -68,12 +62,6 @@ export const ProjectHistorySection: React.FC<ProjectHistorySectionProps> = ({ fo
       transform: [{ rotate: `${angle}deg` }],
     };
   });
-
-  const triggerHaptic = (style = Haptics.ImpactFeedbackStyle.Light) => {
-    if (Platform.OS !== 'web') {
-      Haptics.impactAsync(style).catch(() => {});
-    }
-  };
 
   /**
    * Carga perezosa (Lazy Loading):
@@ -113,7 +101,7 @@ export const ProjectHistorySection: React.FC<ProjectHistorySectionProps> = ({ fo
   );
 
   const toggleExpand = () => {
-    triggerHaptic();
+    triggerHapticImpact();
     const nextState = !isExpanded;
     setIsExpanded(nextState);
 
@@ -125,83 +113,61 @@ export const ProjectHistorySection: React.FC<ProjectHistorySectionProps> = ({ fo
 
   const handleRefresh = (e: any) => {
     e.stopPropagation?.();
-    triggerHaptic();
+    triggerHapticImpact();
     fetchProjectHistory(0, false);
   };
 
   const handleFetchNextPage = () => {
-    triggerHaptic();
+    triggerHapticImpact();
     fetchProjectHistory(pageRef.current + 1, true);
   };
 
-  const getBadgeStyle = (type: ParsedAuditEntry['badgeType']) => {
-    switch (type) {
-      case 'CREATE':
-        return {
-          bg: 'bg-emerald-50 border-emerald-200',
-          text: 'text-emerald-700',
-          icon: <PlusCircle size={11} color="#059669" />,
-        };
-      case 'RESTORE':
-        return {
-          bg: 'bg-teal-50 border-teal-200',
-          text: 'text-teal-700',
-          icon: <RotateCcw size={11} color="#0D9488" />,
-        };
-      case 'STATUS':
-        return {
-          bg: 'bg-blue-50 border-blue-200',
-          text: 'text-blue-700',
-          icon: <ArrowRightLeft size={11} color="#2563EB" />,
-        };
-      case 'PRIORITY':
-        return {
-          bg: 'bg-amber-50 border-amber-200',
-          text: 'text-amber-700',
-          icon: <Edit3 size={11} color="#D97706" />,
-        };
-      case 'DELETE':
-        return {
-          bg: 'bg-rose-50 border-rose-200',
-          text: 'text-rose-700',
-          icon: <Trash2 size={11} color="#E11D48" />,
-        };
-      default:
-        return {
-          bg: 'bg-slate-100 border-slate-200',
-          text: 'text-slate-700',
-          icon: <CheckCircle2 size={11} color="#475569" />,
-        };
-    }
-  };
-
   return (
-    <View className="bg-white rounded-3xl mb-4 border border-slate-200/80 shadow-sm overflow-hidden">
+    <View style={[theme.cardStyle, { marginBottom: 16, overflow: 'hidden' }]}>
       {/* Cabecera Colapsable del Historial Acotado */}
       <TouchableOpacity
         activeOpacity={0.7}
         onPress={toggleExpand}
-        className="flex-row items-center justify-between px-4 py-3 bg-slate-50/70 border-b border-slate-100"
+        className="flex-row items-center justify-between px-4 py-3 border-b"
+        style={{
+          backgroundColor: theme.colors.surfaceElevated,
+          borderColor: theme.colors.border,
+        }}
       >
         <View className="flex-row items-center flex-1 mr-2">
-          <View className="w-8 h-8 rounded-xl bg-purple-50 items-center justify-center mr-2.5 border border-purple-100">
-            <History size={16} color="#7C3AED" />
+          <View
+            className="w-8 h-8 rounded-xl items-center justify-center mr-2.5 border"
+            style={{
+              backgroundColor: `${theme.colors.accent}15`,
+              borderColor: `${theme.colors.accent}30`,
+            }}
+          >
+            <History size={16} color={theme.colors.accent} />
           </View>
           <View className="flex-1">
             <View className="flex-row items-center">
-              <Text className="text-sm font-bold text-slate-800 mr-2">
+              <Text
+                className="text-sm font-bold mr-2"
+                style={{ color: theme.colors.text }}
+              >
                 Historial de Actividad
               </Text>
               {hasLoadedOnce && logs.length > 0 && (
-                <View className="bg-purple-100/70 px-2 py-0.5 rounded-full">
-                  <Text className="text-[10px] font-bold text-purple-700">
+                <View
+                  className="px-2 py-0.5 rounded-full"
+                  style={{ backgroundColor: `${theme.colors.accent}20` }}
+                >
+                  <Text
+                    className="text-[10px] font-bold"
+                    style={{ color: theme.colors.accent }}
+                  >
                     {logs.length}
                     {hasMoreLogs ? '+' : ''}
                   </Text>
                 </View>
               )}
             </View>
-            <Text className="text-[11px] text-slate-400 mt-0.5">
+            <Text className="text-[11px] mt-0.5" style={{ color: theme.colors.textMuted }}>
               Agrupado dinámicamente (Hoy, Ayer, La semana pasada)
             </Text>
           </View>
@@ -212,14 +178,18 @@ export const ProjectHistorySection: React.FC<ProjectHistorySectionProps> = ({ fo
             <TouchableOpacity
               onPress={handleRefresh}
               hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-              className="p-1.5 mr-1 rounded-lg bg-white border border-slate-200 shadow-sm"
+              className="p-1.5 mr-1 rounded-lg border shadow-sm"
+              style={{
+                backgroundColor: theme.colors.surface,
+                borderColor: theme.colors.border,
+              }}
             >
-              <RotateCw size={12} color="#64748B" />
+              <RotateCw size={12} color={theme.colors.textSecondary} />
             </TouchableOpacity>
           )}
 
           <Animated.View style={animatedChevronStyle} className="p-1">
-            <ChevronDown size={18} color="#94A3B8" />
+            <ChevronDown size={18} color={theme.colors.textMuted} />
           </Animated.View>
         </View>
       </TouchableOpacity>
@@ -229,17 +199,23 @@ export const ProjectHistorySection: React.FC<ProjectHistorySectionProps> = ({ fo
         <View className="p-4">
           {isLoading ? (
             <View className="py-8 items-center justify-center">
-              <ActivityIndicator size="small" color="#7C3AED" />
-              <Text className="text-xs text-slate-400 mt-2">
+              <ActivityIndicator size="small" color={theme.colors.accent} />
+              <Text className="text-xs mt-2" style={{ color: theme.colors.textMuted }}>
                 Consultando eventos en SQLite...
               </Text>
             </View>
           ) : groupedSections.length === 0 ? (
             <View className="py-6 items-center justify-center">
-              <Text className="text-xs text-slate-400 font-medium text-center">
+              <Text
+                className="text-xs font-medium text-center"
+                style={{ color: theme.colors.textMuted }}
+              >
                 No hay actividad registrada en este proyecto aún.
               </Text>
-              <Text className="text-[11px] text-slate-400 text-center mt-0.5">
+              <Text
+                className="text-[11px] text-center mt-0.5"
+                style={{ color: theme.colors.textMuted }}
+              >
                 Los cambios de estado, tareas y notas generarán eventos automáticos.
               </Text>
             </View>
@@ -251,54 +227,31 @@ export const ProjectHistorySection: React.FC<ProjectHistorySectionProps> = ({ fo
                 scrollEnabled={false}
                 stickySectionHeadersEnabled={false}
                 renderSectionHeader={({ section }) => (
-                  <View className="flex-row items-center justify-between bg-slate-100/90 px-3 py-1.5 rounded-xl mb-2 mt-1 border border-slate-200/60">
+                  <View
+                    className="flex-row items-center justify-between px-3 py-1.5 rounded-xl mb-2 mt-1 border"
+                    style={{
+                      backgroundColor: theme.colors.surfaceElevated,
+                      borderColor: theme.colors.border,
+                    }}
+                  >
                     <View className="flex-row items-center">
-                      <CalendarClock size={12} color="#64748B" />
-                      <Text className="text-xs font-bold text-slate-700 ml-1.5">
+                      <CalendarClock size={12} color={theme.colors.textSecondary} />
+                      <Text
+                        className="text-xs font-bold ml-1.5"
+                        style={{ color: theme.colors.text }}
+                      >
                         {section.title}
                       </Text>
                     </View>
-                    <Text className="text-[10px] font-bold text-slate-500">
+                    <Text
+                      className="text-[10px] font-bold"
+                      style={{ color: theme.colors.textMuted }}
+                    >
                       {section.data.length} evento{section.data.length === 1 ? '' : 's'}
                     </Text>
                   </View>
                 )}
-                renderItem={({ item: log }) => {
-                  const parsed = parseAuditLogEntry(log);
-                  const style = getBadgeStyle(parsed.badgeType);
-
-                  return (
-                    <View className="p-3 mb-2 rounded-2xl bg-slate-50 border border-slate-200/70">
-                      <View className="flex-row items-center justify-between mb-1">
-                        <View
-                          className={`flex-row items-center px-2 py-0.5 rounded-md border ${style.bg}`}
-                        >
-                          {style.icon}
-                          <Text
-                            className={`text-[10px] font-bold tracking-wide ml-1 ${style.text}`}
-                          >
-                            {parsed.badgeLabel}
-                          </Text>
-                        </View>
-                        <Text className="text-[10px] text-slate-400">{log.timestamp}</Text>
-                      </View>
-
-                      <Text className="text-xs font-bold text-slate-800 mt-0.5" numberOfLines={1}>
-                        {parsed.title}
-                      </Text>
-
-                      <Text className="text-xs text-slate-600 mt-0.5 leading-relaxed">
-                        {parsed.summary}
-                      </Text>
-
-                      {Boolean(parsed.detail) && (
-                        <Text className="text-[10px] text-slate-400 mt-0.5 font-medium">
-                          {parsed.detail}
-                        </Text>
-                      )}
-                    </View>
-                  );
-                }}
+                renderItem={({ item: log }) => <AuditLogEntryCard log={log} compact />}
               />
 
               {/* Botón de Paginación: Cargar más registros */}
@@ -307,12 +260,19 @@ export const ProjectHistorySection: React.FC<ProjectHistorySectionProps> = ({ fo
                   onPress={handleFetchNextPage}
                   disabled={isLoadingMore}
                   activeOpacity={0.7}
-                  className="w-full py-2.5 mt-2 bg-purple-50 rounded-xl border border-purple-200 items-center justify-center flex-row"
+                  className="w-full py-2.5 mt-2 rounded-xl border items-center justify-center flex-row"
+                  style={{
+                    backgroundColor: theme.colors.surfaceElevated,
+                    borderColor: theme.colors.border,
+                  }}
                 >
                   {isLoadingMore ? (
-                    <ActivityIndicator size="small" color="#7C3AED" />
+                    <ActivityIndicator size="small" color={theme.colors.accent} />
                   ) : (
-                    <Text className="text-xs font-semibold text-purple-700">
+                    <Text
+                      className="text-xs font-semibold"
+                      style={{ color: theme.colors.accent }}
+                    >
                       Cargar más registros
                     </Text>
                   )}
