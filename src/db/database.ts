@@ -6,11 +6,6 @@ import type {
   TaskPriority,
   AuditAction,
   AuditLog,
-  NoteCategory,
-  Tag,
-  NoteTag,
-  Note,
-  SearchNotesOptions,
 } from './types';
 
 // Exportación de tipos TypeScript centralizados (costo cero en tiempo de ejecución)
@@ -21,14 +16,7 @@ export type {
   TaskPriority,
   AuditAction,
   AuditLog,
-  NoteCategory,
-  Tag,
-  NoteTag,
-  Note,
-  SearchNotesOptions,
 };
-
-export { generateUUID } from './seedData';
 
 // Selección dinámica y segura de la implementación según la plataforma
 function getModule() {
@@ -145,100 +133,3 @@ export const getProjectAuditLogsAsync = (
   limit?: number,
   offset?: number
 ): Promise<AuditLog[]> => getModule().getProjectAuditLogsAsync(folderId, limit, offset);
-
-export const getMainNoteCategories = (): NoteCategory[] =>
-  getModule().getMainNoteCategories();
-
-export const getSubcategories = (parentId: string): NoteCategory[] =>
-  getModule().getSubcategories(parentId);
-
-export const getAllNoteCategories = (): NoteCategory[] =>
-  getModule().getAllNoteCategories();
-
-export const createNoteCategory = (
-  name: string,
-  parentId?: string | null
-): string => getModule().createNoteCategory(name, parentId);
-
-export const deleteNoteCategory = (id: string): void =>
-  getModule().deleteNoteCategory(id);
-
-export const getNotes = (
-  categoryId?: string | null,
-  isMainCategoryWithSubs?: boolean,
-  tagId?: string | null
-): Note[] => getModule().getNotes(categoryId, isMainCategoryWithSubs, tagId);
-
-export const searchNotes = (
-  query: string,
-  options?: SearchNotesOptions
-): Note[] => getModule().searchNotes(query, options);
-
-export const searchNotesAsync = (
-  query: string,
-  options?: SearchNotesOptions
-): Promise<Note[]> => getModule().searchNotesAsync(query, options);
-
-export const getNoteById = (id: string): Note | null =>
-  getModule().getNoteById(id);
-
-export const createNote = (
-  categoryId: string,
-  title: string,
-  content?: string,
-  isPinned?: boolean,
-  presetId?: string
-): string =>
-  getModule().createNote(categoryId, title, content, isPinned, presetId);
-
-export const createNoteAsync = (
-  categoryId: string,
-  title: string,
-  content?: string,
-  isPinned?: boolean,
-  presetId?: string
-): Promise<string> =>
-  getModule().createNoteAsync(categoryId, title, content, isPinned, presetId);
-
-export const updateNote = (
-  id: string,
-  title: string,
-  content: string,
-  categoryId?: string,
-  isPinned?: boolean
-): void => getModule().updateNote(id, title, content, categoryId, isPinned);
-
-export const updateNoteAsync = (
-  id: string,
-  title: string,
-  content: string,
-  categoryId?: string,
-  isPinned?: boolean
-): Promise<void> =>
-  getModule().updateNoteAsync(id, title, content, categoryId, isPinned);
-
-export const toggleNotePinned = (id: string): void =>
-  getModule().toggleNotePinned(id);
-
-export const deleteNote = (id: string): void => getModule().deleteNote(id);
-
-export const getAllTags = (): Tag[] => getModule().getAllTags();
-
-export const createTag = (name: string, color?: string): Tag =>
-  getModule().createTag(name, color);
-
-export const deleteTag = (id: string): void => getModule().deleteTag(id);
-
-export const getNoteTags = (noteId: string): Tag[] =>
-  getModule().getNoteTags(noteId);
-
-export const setNoteTags = (noteId: string, tagIds: string[]): void =>
-  getModule().setNoteTags(noteId, tagIds);
-
-export const setNoteTagsAsync = (
-  noteId: string,
-  tagIds: string[]
-): Promise<void> => getModule().setNoteTagsAsync(noteId, tagIds);
-
-export const getNotesByTag = (tagId: string): Note[] =>
-  getModule().getNotesByTag(tagId);

@@ -43,14 +43,6 @@ function ThemedNavigation() {
             headerBackTitle: 'Carpetas',
           }}
         />
-        <Stack.Screen
-          name="notes/editor"
-          options={{
-            title: 'Nota',
-            presentation: 'modal',
-            headerShown: false,
-          }}
-        />
       </Stack>
     </>
   );

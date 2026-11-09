@@ -114,7 +114,7 @@ export const CreateFolderModal: React.FC<CreateFolderModalProps> = ({
             Contexto o idea (opcional)
           </Text>
           <TextInput
-            placeholder="Breve resumen o notas clave (Markdown)..."
+            placeholder="Breve resumen o visión clave (Markdown)..."
             placeholderTextColor={theme.colors.textMuted}
             value={description}
             onChangeText={setDescription}

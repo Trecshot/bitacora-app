@@ -27,6 +27,16 @@
     "plugins": [
       "expo-router",
       "expo-sqlite"
-    ]
+    ],
+    "extra": {
+      "router": {
+        "asyncRoutes": {
+          "web": true
+        }
+      },
+      "eas": {
+        "projectId": "38a7f11e-9f24-4a3f-9d9d-fed578e38db7"
+      }
+    }
   }
 }
